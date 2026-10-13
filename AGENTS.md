@@ -31,6 +31,14 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 
 ## Tab "Proxy" (kho proxy dùng chung) — 2026-10-13
 
+- **Bulk add**: nút **Dán hàng loạt** (`BulkProxyDialog.tsx`) — dán mỗi dòng 1 proxy, hiện số dòng + đếm theo giao thức,
+  tự bỏ dòng trống / dòng `#` / dòng trùng. Main: `addProxyBulk(lines)` + IPC `proxies:addBulk`.
+- **`socks4://` ĐÃ được hỗ trợ** (trước đây `parseProxy` chỉ nhận http/https/socks5 nên `socks4://...` bị parse thành
+  `http://socks4` — sai). Đã sửa regex thành `/^(https?|socks4|socks5):\/\//i`.
+- **Đo thật 2026-10-13 16:33** với 72 proxy người dùng dán (bulk add 72/72, test song song 6 luồng mất 99s):
+  **19/72 chạy được** — `socks4 14/31`, `socks5 5/23`, `http 0/18`. Nhanh nhất ~177ms (`socks4://171.248.212.149:1080` → Hà Nội).
+- ⚠ **Chỉ chạy 1 instance app**: 2 cửa sổ cùng mở sẽ cùng ghi `proxies.json` (mỗi lần test ghi cả file) ⇒ danh sách bị
+  ghi đè chồng nhau (đã gặp: 72 → 18). Test all giờ gom kết quả rồi ghi 1 lần/item nhưng vẫn phải 1 instance.
 - Kho ở `%APPDATA%\bing-reward-farm\proxies.json` (`src/main/proxies.ts`): `{id, label, url, note, lastTest, createdAt}`.
 - IPC: `proxies:list/add/update/remove/test/testAll`; preload: `listProxies/addProxy/updateProxy/removeProxy/testSavedProxy/testAllProxies`.
 - UI: `ProxyPanel.tsx` (bảng Tên · Chuỗi proxy · Kết quả test gần nhất · Tài khoản đang dùng · Thao tác) + `ProxyDialog.tsx` (có nút **Kiểm tra ngay**).
@@ -135,6 +143,11 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 | `BRF_DEBUG=<port>` | bật remote debugging cho Electron (dùng với `tools/test-add-account.mjs`) |
 | `BRF_AUTOOPEN=1` | tự bấm “Mở trình duyệt” (kiểm thử đường CDP) |
 | `BRF_AUTORUN=daily,desktop` | tự chạy 1 run qua đúng luồng IPC → runner → core |
+| `BRF_AUTORUN_PROFILE=<id>` | chọn profile cho `BRF_AUTORUN` (mặc định profile đầu tiên) |
+| `BRF_TAB=proxies` | mở app ở thẳng tab Proxy |
+| `BRF_BULK_FILE=<path>` | nạp danh sách proxy từ file qua đúng đường bulk add |
+| `BRF_TEST_ALL=1` | (đi với `BRF_BULK_FILE`) test toàn bộ proxy sau khi nạp, in tổng kết ra console |
+| `BRF_SEED_PROXY=1` | thêm 2 proxy mẫu vào kho để thử tab Proxy |
 
 ## Đã kiểm chứng
 

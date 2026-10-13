@@ -41,7 +41,8 @@ export function parseProxy(raw: string | null | undefined): ParsedProxy | null {
   }
 
   try {
-    const withScheme = /^https?:\/\/|^socks5:\/\//i.test(s) ? s : `http://${s}`
+    // Ho tro http, https, socks4, socks5 (do that 2026-10-13: socks4:// chay duoc qua Playwright)
+    const withScheme = /^(https?|socks4|socks5):\/\//i.test(s) ? s : `http://${s}`
     const u = new URL(withScheme)
     const server = `${u.protocol}//${u.hostname}${u.port ? `:${u.port}` : ''}`
     const res: ParsedProxy = { server }

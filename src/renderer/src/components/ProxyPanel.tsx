@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Pencil, Plus, RefreshCw, Trash2, Wifi } from 'lucide-react'
+import { Pencil, Plus, ClipboardPaste, RefreshCw, Trash2, Wifi } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import { ProxyDialog } from '@renderer/components/ProxyDialog'
+import { BulkProxyDialog } from '@renderer/components/BulkProxyDialog'
 import { timeAgo } from '@renderer/lib/utils'
 import type { ProxyItem, RowState } from '@shared/types'
 
@@ -12,6 +13,7 @@ import type { ProxyItem, RowState } from '@shared/types'
 export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: () => void }): React.JSX.Element {
   const [items, setItems] = useState<ProxyItem[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
   const [editing, setEditing] = useState<ProxyItem | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -56,6 +58,9 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
           }}
         >
           <Plus className="size-3.5" /> Thêm proxy
+        </Button>
+        <Button size="sm" variant="secondary" className="gap-1.5" onClick={() => setBulkOpen(true)}>
+          <ClipboardPaste className="size-3.5" /> Dán hàng loạt
         </Button>
         <span className="mx-1 h-5 w-px bg-[var(--hairline)]" />
         <Button
@@ -228,6 +233,18 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
             if (!r.ok) throw new Error(r.error)
             toast.success('Đã thêm proxy vào kho.')
           }
+          await reload()
+          onChanged()
+        }}
+      />
+
+      <BulkProxyDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onSubmit={async (lines) => {
+          const r = await window.api.addProxyBulk(lines)
+          if (!r.ok) throw new Error(r.error)
+          toast.success(`Đã thêm ${r.added} proxy${r.skipped ? `, bỏ qua ${r.skipped} dòng trùng` : ''}.`)
           await reload()
           onChanged()
         }}

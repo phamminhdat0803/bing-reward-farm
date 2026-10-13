@@ -8,7 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, listProxies, removeProxy, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, listProxies, removeProxy, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -112,6 +112,27 @@ function createWindow(): void {
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
     })
+  }
+
+  // Tien ich dev: BRF_BULK_FILE=<duong dan> -> nap danh sach proxy tu file qua dung duong bulk add
+  // BRF_TEST_ALL=1 -> sau khi nap thi test tat ca (do luong that)
+  if (process.env.BRF_BULK_FILE) {
+    void (async () => {
+      try {
+        const fs = await import('node:fs')
+        const lines = fs.readFileSync(String(process.env.BRF_BULK_FILE), 'utf8').split(/\r?\n/)
+        const r = addProxyBulk(lines)
+        console.log(`[bulk] them ${r.added.length} proxy, bo qua ${r.skipped} dong trung`)
+        if (process.env.BRF_TEST_ALL) {
+          const t0 = Date.now()
+          const res = await testAll()
+          const ok = Object.values(res).filter((x) => x.ok).length
+          console.log(`[bulk] test tat ca: ${ok}/${Object.keys(res).length} chay duoc trong ${Math.round((Date.now() - t0) / 1000)}s`)
+        }
+      } catch (e) {
+        console.error('[bulk] loi', e)
+      }
+    })()
   }
 
   // Tien ich dev: BRF_SEED_PROXY=1 -> them 2 proxy mau vao kho (de kiem thu tab Proxy)
@@ -331,6 +352,14 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   ipcMain.handle('proxies:add', (_e, input) => {
     try {
       return { ok: true, item: addProxy(input) }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message) }
+    }
+  })
+  ipcMain.handle('proxies:addBulk', (_e, lines: string[]) => {
+    try {
+      const r = addProxyBulk(Array.isArray(lines) ? lines : [])
+      return { ok: true, added: r.added.length, skipped: r.skipped, items: r.added }
     } catch (e) {
       return { ok: false, error: String((e as Error).message) }
     }

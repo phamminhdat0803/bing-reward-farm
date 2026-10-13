@@ -34,6 +34,11 @@ const api = {
   listProxies: (): Promise<ProxyItem[]> => ipcRenderer.invoke('proxies:list'),
   addProxy: (input: Partial<ProxyItem>): Promise<{ ok: boolean; item?: ProxyItem; error?: string }> =>
     ipcRenderer.invoke('proxies:add', input),
+  /** Them nhieu proxy 1 luc (moi phan tu 1 dong proxy) */
+  addProxyBulk: (
+    lines: string[]
+  ): Promise<{ ok: boolean; added?: number; skipped?: number; items?: ProxyItem[]; error?: string }> =>
+    ipcRenderer.invoke('proxies:addBulk', lines),
   updateProxy: (
     id: string,
     patch: Partial<ProxyItem>

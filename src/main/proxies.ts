@@ -53,6 +53,35 @@ export function resolveProxyUrl(profile: { proxyId?: string | null; proxy?: stri
   return profile.proxy?.trim() ? profile.proxy : null
 }
 
+/** Them nhieu proxy 1 luc (dan danh sach, moi dong 1 proxy). Bo qua trung va dong trong. */
+export function addProxyBulk(lines: string[]): { added: ProxyItem[]; skipped: number } {
+  const st = load()
+  const existing = new Set(st.items.map((p) => p.url))
+  const added: ProxyItem[] = []
+  let skipped = 0
+  for (const raw of lines) {
+    const url = String(raw || '').trim()
+    if (!url || url.startsWith('#')) continue
+    if (existing.has(url)) {
+      skipped += 1
+      continue
+    }
+    // ten goi nho: host:port (+ tien to giao thuc neu khac http)
+    const m = url.match(/^(?:([a-z0-9]+):\/\/)?([^:/@]+)(?::(\d+))?/i)
+    const scheme = (m?.[1] ?? 'http').toLowerCase()
+    const label = m ? `${m[2]}:${m[3] ?? ''}${scheme !== 'http' ? ` (${scheme})` : ''}` : url
+    const item: ProxyItem = { id: '', label, url, createdAt: new Date().toISOString() }
+    let id = slug(label)
+    if (st.items.some((p) => p.id === id)) id = `${id}-${Math.random().toString(36).slice(2, 6)}`
+    item.id = id
+    st.items.push(item)
+    existing.add(url)
+    added.push(item)
+  }
+  if (added.length) save(st)
+  return { added, skipped }
+}
+
 export function addProxy(input: Partial<ProxyItem>): ProxyItem {
   const st = load()
   const label = (input.label || '').trim() || `Proxy ${st.items.length + 1}`
@@ -96,12 +125,25 @@ export async function testAndSave(id: string): Promise<ProxyTestResult> {
   return res
 }
 
-/** Test tat ca (tuan tu cho nhe mang). */
-export async function testAll(): Promise<Record<string, ProxyTestResult>> {
+/** Test tat ca (song song co gioi han), CHI ghi file 1 lan cho nhanh va tranh tranh chap. */
+export async function testAll(concurrency = 6): Promise<Record<string, ProxyTestResult>> {
+  const items = listProxies()
   const out: Record<string, ProxyTestResult> = {}
-  for (const item of listProxies()) {
-    // eslint-disable-next-line no-await-in-loop
-    out[item.id] = await testAndSave(item.id)
+  let i = 0
+  const worker = async (): Promise<void> => {
+    while (i < items.length) {
+      const idx = i
+      i += 1
+      const item = items[idx]
+      // eslint-disable-next-line no-await-in-loop
+      const res = await testProxy(item.url)
+      out[item.id] = res
+      const st = load()
+      const target = st.items.find((x) => x.id === item.id)
+      if (target) target.lastTest = { ...res, at: new Date().toISOString() }
+      save(st)
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
   return out
 }
