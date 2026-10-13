@@ -1,0 +1,165 @@
+@import 'tailwindcss';
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
+@import '@fontsource/dm-sans/600.css';
+@import '@fontsource/dm-sans/700.css';
+
+/* ==========================================================================
+   MiniMax design tokens (DESIGN.md) — light canvas, ink, hairline, brand colors
+   ========================================================================== */
+:root {
+  /* surface */
+  --canvas: #ffffff;
+  --surface: #f7f8fa;
+  --surface-soft: #f2f3f5;
+  --hairline: #e5e7eb;
+  --hairline-soft: #eaecf0;
+  /* text */
+  --ink: #0a0a0a;
+  --ink-strong: #000000;
+  --charcoal: #222222;
+  --slate: #45515e;
+  --steel: #5f5f5f;
+  --stone: #8e8e93;
+  --muted-ink: #a8aab2;
+  /* brand */
+  --brand-coral: #ff5530;
+  --brand-magenta: #ea5ec1;
+  --brand-blue: #1456f0;
+  --brand-blue-mid: #3b82f6;
+  --brand-blue-deep: #1d4ed8;
+  --brand-blue-700: #17437d;
+  --brand-cyan: #3daeff;
+  --brand-blue-200: #bfdbfe;
+  --brand-purple: #a855f7;
+  /* semantic */
+  --success-bg: #e8ffea;
+  --success-text: #1ba673;
+  --error: #d45656;
+
+  /* shadcn/tailwind aliases */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--canvas);
+  --card-foreground: var(--ink);
+  --popover: var(--canvas);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: #ffffff;
+  --secondary: var(--canvas);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-soft);
+  --muted-foreground: var(--steel);
+  --accent: var(--surface);
+  --accent-foreground: var(--ink);
+  --destructive: var(--error);
+  --destructive-foreground: #ffffff;
+  --success: var(--success-text);
+  --warning: #b45309;
+  --border: var(--hairline);
+  --border-soft: var(--hairline-soft);
+  --input: var(--hairline);
+  --ring: var(--brand-blue-deep);
+  --radius: 12px;
+}
+
+@theme inline {
+  --font-sans: 'DM Sans', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand-coral: var(--brand-coral);
+  --color-brand-magenta: var(--brand-magenta);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-purple: var(--brand-purple);
+  --color-brand-cyan: var(--brand-cyan);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-hero: 32px;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: 'DM Sans', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* MiniMax: khong dung dark mode, không đổ bóng nặng */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8dade;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Tiện ích nhỏ theo DESIGN.md */
+.mm-hero {
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -1px;
+}
+.mm-heading {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.mm-card-title {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.mm-caption {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--steel);
+}
+.mm-micro {
+  font-size: 12px;
+  color: var(--stone);
+}
+.mm-tabular {
+  font-variant-numeric: tabular-nums;
+}

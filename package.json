@@ -1,0 +1,43 @@
+{
+  "name": "bing-reward-farm",
+  "version": "0.1.0",
+  "description": "Quan ly nhieu profile trinh duyet + automation Microsoft Rewards (Bing search, daily set, mobile)",
+  "main": "./out/main/index.js",
+  "author": "Dat",
+  "homepage": "https://electron-vite.org",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "@fontsource/dm-sans": "^5.3.0",
+    "cn": "^0.4.0",
+    "next-themes": "^0.4.6",
+    "playwright-core": "^1.64.0",
+    "radix-ui": "^1.8.1",
+    "sonner": "^2.0.8"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "electron": "^39.2.6",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^0.553.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "tailwind-merge": "^3.4.1",
+    "tailwindcss": "^4.1.14",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6"
+  }
+}
