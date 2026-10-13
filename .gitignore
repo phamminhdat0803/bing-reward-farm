@@ -7,3 +7,5 @@ data/
 .env
 *.tsbuildinfo
 docs/*.png
+reports-proxy-test.json
+tools/proxies-user.txt
