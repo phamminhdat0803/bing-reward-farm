@@ -58,10 +58,24 @@ export async function testProxy(rawProxy: string): Promise<ProxyTestResult> {
     const latency = Date.now() - t0
     const msg = String((e as Error).message)
     let err = msg
-    if (/timeout/i.test(msg)) err = 'Kết nối proxy quá thời gian (Timeout)'
-    else if (/ECONNREFUSED/i.test(msg)) err = 'Không thể kết nối đến máy chủ proxy (Connection refused)'
-    else if (/407/i.test(msg) || /proxy auth/i.test(msg)) err = 'Sai tài khoản hoặc mật khẩu proxy (407 Proxy Authentication Required)'
-    else if (/ENOTFOUND/i.test(msg)) err = 'Không tìm thấy địa chỉ proxy (DNS not found)'
+    if (/rejected connection/i.test(msg)) {
+      err = 'Máy chủ proxy từ chối kết nối (Rejected connection)'
+    } else if (/timeout/i.test(msg)) {
+      err = 'Kết nối proxy quá thời gian (Timeout)'
+    } else if (/ECONNREFUSED/i.test(msg)) {
+      err = 'Không thể kết nối đến máy chủ proxy (Connection refused)'
+    } else if (/407/i.test(msg) || /proxy auth/i.test(msg)) {
+      err = 'Sai tài khoản hoặc mật khẩu proxy (407 Proxy Authentication Required)'
+    } else if (/ENOTFOUND/i.test(msg)) {
+      err = 'Không tìm thấy địa chỉ proxy (DNS not found)'
+    } else {
+      const firstLine = msg
+        .split('\n')[0]
+        .replace(/\u001b\[\d+m/g, '')
+        .replace(/^apiRequestContext\.\w+:\s*/, '')
+        .trim()
+      err = firstLine || msg
+    }
     return { ok: false, latency, error: err }
   }
 }

@@ -30,6 +30,7 @@ import {
 
 export type ToolbarProps = {
   selectedCount: number
+  runningCount: number
   anyBrowserOpen: boolean
   anyRunning: boolean
   busy: string | null
@@ -58,7 +59,7 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
   const many = p.selectedCount > 1
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-[12px] border border-[var(--hairline)] bg-[var(--canvas)] px-2.5 py-1.5">
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
       {/* 1. Nút Thêm tài khoản */}
       <Button size="sm" onClick={p.onAdd} className="gap-1.5">
         <Plus className="size-3.5" /> Thêm tài khoản
@@ -81,55 +82,58 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
 
       <Divider />
 
-      {/* 3. Nhóm Chạy automation (Split Button / Dropdown) */}
+      {/* 3. Nhóm Chạy automation (Split Button / Dropdown) - Luôn hiển thị để có thể chạy tài khoản khác */}
+      <div className="flex items-center">
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={none}
+          onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])}
+          className="rounded-r-none border-r-0 gap-1.5"
+        >
+          <Play className="size-3.5" /> {many ? `Chạy (${p.selectedCount})` : 'Chạy'}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={none}
+              className="rounded-l-none px-1.5"
+              title="Tuỳ chọn chức năng chạy"
+            >
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <DropdownMenuItem onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])} className="gap-2">
+              <Play className="size-3.5" /> Chạy tất cả (Full)
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => p.onRun(['desktop'])} className="gap-2">
+              <Download className="size-3.5" /> Chỉ Search desktop
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => p.onRun(['mobile'])} className="gap-2">
+              <Smartphone className="size-3.5" /> Chỉ Search mobile
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => p.onRun(['daily'])} className="gap-2">
+              <Gift className="size-3.5" /> Chỉ Daily set
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => p.onRun(['earn'])} className="gap-2">
+              <Sparkles className="size-3.5" /> Chỉ Kiếm thêm (Keep earning)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Nút Dừng chạy hiển thị cạnh nút Chạy khi có tài khoản đang chạy */}
       {p.anyRunning ? (
         <Button size="sm" variant="danger" onClick={p.onStop} className="gap-1.5">
-          <Square className="size-3.5" /> Dừng chạy
+          <Square className="size-3.5 fill-current" /> Dừng chạy {p.runningCount > 0 ? `(${p.runningCount})` : ''}
         </Button>
-      ) : (
-        <div className="flex items-center">
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={none}
-            onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])}
-            className="rounded-r-none border-r-0 gap-1.5"
-          >
-            <Play className="size-3.5" /> Chạy tất cả
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={none}
-                className="rounded-l-none px-1.5"
-                title="Tuỳ chọn chạy"
-              >
-                <ChevronDown className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuItem onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])} className="gap-2">
-                <Play className="size-3.5" /> Chạy tất cả (Full)
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => p.onRun(['desktop'])} className="gap-2">
-                <Download className="size-3.5" /> Chỉ Search desktop
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => p.onRun(['mobile'])} className="gap-2">
-                <Smartphone className="size-3.5" /> Chỉ Search mobile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => p.onRun(['daily'])} className="gap-2">
-                <Gift className="size-3.5" /> Chỉ Daily set
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => p.onRun(['earn'])} className="gap-2">
-                <Sparkles className="size-3.5" /> Chỉ Kiếm thêm (Keep earning)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
+      ) : null}
+
+      <Divider />
 
       {/* 4. Nhóm Trình duyệt (Split Button / Dropdown) */}
       <div className="flex items-center">
@@ -154,18 +158,20 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
               <ChevronDown className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-52">
-            <DropdownMenuItem disabled={none} onClick={p.onOpenBrowser} className="gap-2">
-              <Chrome className="size-3.5" /> Mở trình duyệt (kèm CDP)
+          <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuItem disabled={none} onClick={p.onOpenBrowser} className="gap-2.5 whitespace-nowrap">
+              <Chrome className="size-3.5" />
+              <span>Mở trình duyệt</span>
+              <span className="ml-auto text-[11px] text-[var(--stone)]">(kèm CDP)</span>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={p.selectedCount !== 1} onClick={p.onLoginWindow} className="gap-2">
+            <DropdownMenuItem disabled={p.selectedCount !== 1} onClick={p.onLoginWindow} className="gap-2.5 whitespace-nowrap">
               <LogIn className="size-3.5" /> Mở cửa sổ đăng nhập
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={!p.anyBrowserOpen}
               onClick={p.onCloseBrowser}
-              className="gap-2 text-[var(--error)] focus:text-[var(--error)]"
+              className="gap-2.5 whitespace-nowrap text-[var(--error)] focus:text-[var(--error)]"
             >
               <X className="size-3.5" /> Đóng trình duyệt đang mở
             </DropdownMenuItem>

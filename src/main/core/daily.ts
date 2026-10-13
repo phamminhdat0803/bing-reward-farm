@@ -1,23 +1,26 @@
 // Daily set: 3 hoat dong/ngay (~30 diem). PHAI click that vao the (mo tab moi);
 // page.goto(href) KHONG duoc Rewards tinh. Sau moi the doc lai counter "Activity: x/3".
 import type { BrowserContext, Page } from 'playwright-core'
+import { closeStrayPages, workPage } from './browser'
 import { readCounters } from './rewards'
-import { randInt, sleep } from './logger'
+import { cancellableSleep, randInt } from './logger'
 import type { CoreConfig, DailySetResult, Logger } from './types'
 
 export async function runDailySet(args: {
   cfg: CoreConfig
   ctx: BrowserContext
+  page?: Page
   log: Logger
   shouldStop?: () => boolean
 }): Promise<DailySetResult> {
   const { cfg, ctx, log, shouldStop } = args
-  const page = await ctx.newPage()
+  const page = args.page ?? (await workPage(ctx))
+  const ownPage = !args.page
   page.setDefaultTimeout(30000)
 
   let snap = await readCounters(page, log, { quiet: true })
   if (!snap.signedIn) {
-    await page.close()
+    if (ownPage) await page.close()
     return {
       status: 'not-signed-in',
       items: [],
@@ -36,6 +39,19 @@ export async function runDailySet(args: {
   let guard = 0
 
   log.info(`[daily] diem=${pointsBefore} Activity=${activityBefore}/${target} (${snap.setLinks.length} link)`)
+
+  if (activityBefore >= target) {
+    log.info(`[daily] daily set da hoan thanh (${activityBefore}/${target}), khong can click them`)
+    if (ownPage) await page.close()
+    return {
+      status: 'already-completed',
+      items: [],
+      activityBefore,
+      activityAfter: activityBefore,
+      pointsBefore: pointsBefore ?? null,
+      pointsAfter: pointsBefore ?? null
+    }
+  }
 
   while ((snap.counters.dailySet?.progress ?? 0) < target && guard < cfg.daily.maxItems) {
     if (shouldStop?.()) {
@@ -73,23 +89,28 @@ export async function runDailySet(args: {
       }
       const tab: Page = opened ?? page
       await tab.waitForLoadState('domcontentloaded').catch(() => {})
-      await sleep(randInt(cfg.daily.waitAfterClickMs.min, cfg.daily.waitAfterClickMs.max))
+      await cancellableSleep(randInt(cfg.daily.waitAfterClickMs.min, cfg.daily.waitAfterClickMs.max), shouldStop)
       items.push({ label, href: link.href, visited: true, reward: link.reward })
       log.info(`[daily] da click: ${label}${link.reward ? ` (+${link.reward})` : ''}${opened ? ' [tab moi]' : ''}`)
       if (opened) await opened.close().catch(() => {})
+      await closeStrayPages(ctx, page)
+      if (shouldStop?.()) break
       await page.bringToFront().catch(() => {})
       snap = await readCounters(page, log, { quiet: true })
       log.info(`[daily] -> Activity ${snap.counters.dailySet?.progress ?? '?'}/${target}`)
     } catch (e) {
       log.warn(`[daily] loi voi "${label}": ${String((e as Error).message).slice(0, 160)}`)
       items.push({ label, href: link.href, visited: false })
+      await closeStrayPages(ctx, page)
     }
   }
 
-  await sleep(cfg.daily.settleMs)
-  const last = await readCounters(page, log, { quiet: true }).catch(() => null)
+  if (!shouldStop?.()) {
+    await cancellableSleep(cfg.daily.settleMs, shouldStop)
+  }
+  const last = shouldStop?.() ? null : await readCounters(page, log, { quiet: true }).catch(() => null)
   const activityAfter = last?.counters.dailySet?.progress ?? activityBefore
-  await page.close()
+  if (ownPage) await page.close()
   return {
     status: activityAfter > activityBefore ? 'credited' : 'visited-pending',
     items,

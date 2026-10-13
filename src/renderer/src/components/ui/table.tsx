@@ -3,9 +3,13 @@ import { cn } from '@renderer/lib/utils'
 
 // MiniMax data-table: canvas + hairline, header nền surface chữ steel (caption-bold),
 // hàng body padding 16px, divider hairline-soft.
-function Table({ className, ...props }: React.ComponentProps<'table'>): React.JSX.Element {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<'table'> & { containerClassName?: string }): React.JSX.Element {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    <div data-slot="table-container" className={cn('relative w-full min-h-0 flex-1 overflow-auto', containerClassName)}>
       <table data-slot="table" className={cn('w-full caption-bottom border-collapse text-sm', className)} {...props} />
     </div>
   )

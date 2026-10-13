@@ -1,9 +1,9 @@
 // 1 pass search: go tu khoa nhu nguoi that, nghi 15-30s, doc lai diem dinh ky.
 // VN: khong co counter kieu US; diem = 3/search, tran ngay doc tu drawer breakdown.
 import type { BrowserContext, Page } from 'playwright-core'
-import { humanPause, humanType } from './browser'
+import { humanPause, humanType, workPage } from './browser'
 import { fmtCounter, readCounters } from './rewards'
-import { randInt, sleep } from './logger'
+import { cancellableSleep, randInt, sleep } from './logger'
 import type { CoreConfig, Logger, SearchPassResult } from './types'
 
 const HOME = 'https://www.bing.com/?FORM=Z9FD1'
@@ -36,7 +36,8 @@ async function dismissBanners(page: Page): Promise<void> {
   }
 }
 
-async function doSearch(page: Page, q: string, cfg: CoreConfig): Promise<string> {
+async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () => boolean): Promise<string> {
+  if (shouldStop?.()) return 'stopped'
   if (!/^https?:\/\/(www\.)?bing\.com\//.test(page.url()) || page.url().includes('rewards.bing.com')) {
     await gotoHome(page)
   }
@@ -48,27 +49,43 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig): Promise<string>
     await box.click({ timeout: 8000 })
     await box.fill('')
     await humanType(cfg, box, q)
-    await sleep(randInt(250, 800))
+    await cancellableSleep(randInt(250, 800), shouldStop)
+    if (shouldStop?.()) return 'stopped'
     await page.keyboard.press('Enter')
     await page.waitForSelector(RESULTS, { timeout: 20000 })
   } catch (e) {
+    if (shouldStop?.()) return 'stopped'
     how = `url (${String((e as Error).message).split('\n')[0].slice(0, 60)})`
     await page
       .goto(`https://www.bing.com/search?q=${encodeURIComponent(q)}&FORM=QBLH`, { waitUntil: 'domcontentloaded' })
       .catch(() => {})
     await page.waitForSelector(RESULTS, { timeout: 20000 }).catch(() => {})
   }
-  await sleep(randInt(900, 2200))
+  if (shouldStop?.()) return 'stopped'
+  await cancellableSleep(randInt(900, 2200), shouldStop)
+  if (shouldStop?.()) return 'stopped'
   await page.mouse.wheel(0, randInt(250, 1100)).catch(() => {})
-  await humanPause(cfg, 'dwell')
+  await humanPause(cfg, 'dwell', shouldStop)
+  if (shouldStop?.()) return 'stopped'
 
   if (Math.random() < cfg.search.clickResultProbability) {
     const link = page.locator('#b_results h2 a').first()
     if (await link.count().catch(() => 0)) {
-      await link.click({ timeout: 8000 }).catch(() => {})
-      await sleep(randInt(1500, 4000))
-      await page.goBack({ timeout: 15000 }).catch(() => {})
-      await sleep(randInt(600, 1500))
+      try {
+        const [opened] = await Promise.all([
+          page.context().waitForEvent('page', { timeout: 3500 }).catch(() => null),
+          link.click({ timeout: 6000 }).catch(() => null)
+        ])
+        await cancellableSleep(randInt(1500, 3000), shouldStop)
+        if (opened) {
+          await opened.close().catch(() => {})
+        } else {
+          await page.goBack({ timeout: 10000 }).catch(() => {})
+        }
+        await cancellableSleep(randInt(600, 1200), shouldStop)
+      } catch {
+        /* bo qua */
+      }
     }
   }
   return how
@@ -77,6 +94,7 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig): Promise<string>
 export async function runSearchPass(args: {
   cfg: CoreConfig
   ctx: BrowserContext
+  page?: Page
   log: Logger
   kind: 'desktop' | 'mobile'
   target: number
@@ -86,13 +104,14 @@ export async function runSearchPass(args: {
   shouldStop?: () => boolean
 }): Promise<SearchPassResult> {
   const { cfg, ctx, log, kind, target, nextQuery, rememberQuery, preparePage, shouldStop } = args
-  const page = await ctx.newPage()
+  const page = args.page ?? (await workPage(ctx))
+  const ownPage = !args.page
   page.setDefaultTimeout(30000)
   if (preparePage) await preparePage(page)
 
   const first = await readCounters(page, log, { quiet: true })
   if (!first.signedIn) {
-    await page.close()
+    if (ownPage) await page.close()
     return {
       kind,
       searches: 0,
@@ -116,7 +135,7 @@ export async function runSearchPass(args: {
 
   if (planned <= 0) {
     log.info(`[${kind}] bo qua: muc tieu search = 0 (da dat tran hoac chua mo)`)
-    await page.close()
+    if (ownPage) await page.close()
     return {
       kind,
       searches: 0,
@@ -146,7 +165,12 @@ export async function runSearchPass(args: {
     }
     const q = nextQuery()
     try {
-      const how = await doSearch(page, q, cfg)
+      const how = await doSearch(page, q, cfg, shouldStop)
+      if (shouldStop?.()) {
+        status = 'cancelled'
+        log.warn(`[${kind}] nguoi dung dung - ket thuc som sau ${searches} search`)
+        break
+      }
       rememberQuery(q)
       searches += 1
       log.debug(`[${kind}] ${i + 1}/${planned}: ${q} [${how}]`)
@@ -155,6 +179,10 @@ export async function runSearchPass(args: {
     }
 
     if (searches > 0 && searches % cfg.search.checkPointsEvery === 0) {
+      if (shouldStop?.()) {
+        status = 'cancelled'
+        break
+      }
       const snap = await readCounters(page, log, { quiet: true }).catch(() => null)
       if (!snap?.signedIn) {
         status = 'check-failed'
@@ -182,11 +210,11 @@ export async function runSearchPass(args: {
       await gotoHome(page).catch(() => {})
     }
 
-    if (i < planned - 1) await sleep(randInt(cfg.search.minDelayMs, cfg.search.maxDelayMs))
+    if (i < planned - 1) await cancellableSleep(randInt(cfg.search.minDelayMs, cfg.search.maxDelayMs), shouldStop)
   }
 
-  const last = await readCounters(page, log, { quiet: true }).catch(() => null)
-  await page.close()
+  const last = shouldStop?.() ? null : await readCounters(page, log, { quiet: true }).catch(() => null)
+  if (ownPage) await page.close()
   return {
     kind,
     searches,

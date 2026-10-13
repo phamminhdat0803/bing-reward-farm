@@ -45,9 +45,13 @@ const api = {
   ): Promise<{ ok: boolean; item?: ProxyItem; error?: string }> =>
     ipcRenderer.invoke('proxies:update', { id, patch }),
   removeProxy: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('proxies:remove', id),
+  /** Xoá nhiều proxy 1 lúc */
+  removeProxies: (ids: string[]): Promise<{ ok: boolean; removed?: number; error?: string }> =>
+    ipcRenderer.invoke('proxies:removeBulk', ids),
   /** Test 1 proxy trong kho va luu ket qua */
   testSavedProxy: (id: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxies:test', id),
-  testAllProxies: (): Promise<Record<string, ProxyTestResult>> => ipcRenderer.invoke('proxies:testAll'),
+  testAllProxies: (filterIds?: string[]): Promise<Record<string, ProxyTestResult>> =>
+    ipcRenderer.invoke('proxies:testAll', filterIds),
   /** Dò các trình duyệt đang cài trên máy */
   detectBrowsers: (force = false): Promise<DetectedBrowser[]> => ipcRenderer.invoke('browsers:detect', force),
 
@@ -78,6 +82,11 @@ const api = {
     const handler = (_e: unknown, line: LogLine): void => cb(line)
     ipcRenderer.on('log:line', handler)
     return () => ipcRenderer.removeListener('log:line', handler)
+  },
+  onRunStatus: (cb: (data: { profileId: string; running: boolean }) => void): (() => void) => {
+    const handler = (_e: unknown, data: { profileId: string; running: boolean }): void => cb(data)
+    ipcRenderer.on('run:status', handler)
+    return () => ipcRenderer.removeListener('run:status', handler)
   },
   onSnapshot: (cb: (snap: Snapshot) => void): (() => void) => {
     const handler = (_e: unknown, snap: Snapshot): void => cb(snap)

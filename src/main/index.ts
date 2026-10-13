@@ -8,7 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, listProxies, removeProxy, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, listProxies, removeProxy, removeProxies, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -298,30 +298,35 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     if (!p) return { ok: false, error: 'khong thay profile' }
     return startRun(p, kinds ?? ['desktop'], {
       onLine: (line: LogLine) => broadcast('log:line', line),
-      onSnapshot: (snap) => broadcast('rewards:snapshot', snap)
+      onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+      onStatusChange: (profileId, running) => broadcast('run:status', { profileId, running })
     })
   })
-  ipcMain.handle('run:stop', (_e, id) => stopRun(id))
+  ipcMain.handle('run:stop', (_e, id) => {
+    const res = stopRun(id)
+    broadcast('run:status', { profileId: id, running: false })
+    return res
+  })
   ipcMain.handle('run:state', (_e, id) => runState(id))
 
   // ---------- IPC: bang trang thai (doc tu cache, KHONG mo trinh duyet) ----------
-  ipcMain.handle('state:list', async () => {
+  ipcMain.handle('state:list', async (): Promise<RowState[]> => {
     const profiles = loadStore().profiles
     const caches = cache.getAll()
-    const rows: RowState[] = []
-    for (const p of profiles) {
-      const bs = await browserState(p)
-      rows.push({
-        id: p.id,
-        profile: p,
-        cache: caches[p.id] ?? null,
-        browser: { running: bs.running, pid: bs.pid, cdpUrl: bs.cdpUrl },
-        run: runState(p.id),
-        needsRefresh: cache.needsNewDayRefresh(p.id),
-        hasData: cache.hasData(p.id)
+    return Promise.all(
+      profiles.map(async (p) => {
+        const bs = await browserState(p)
+        return {
+          id: p.id,
+          profile: p,
+          cache: caches[p.id] ?? null,
+          browser: { running: bs.running, pid: bs.pid, cdpUrl: bs.cdpUrl },
+          run: runState(p.id),
+          needsRefresh: cache.needsNewDayRefresh(p.id),
+          hasData: cache.hasData(p.id)
+        }
       })
-    }
-    return rows
+    )
   })
 
   // ---------- IPC: mo trinh duyet de lay point (chi khi nguoi dung bam) ----------
@@ -379,8 +384,15 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
       return { ok: false, error: String((e as Error).message) }
     }
   })
+  ipcMain.handle('proxies:removeBulk', (_e, ids: string[]) => {
+    try {
+      return { ok: true, ...removeProxies(ids) }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message) }
+    }
+  })
   ipcMain.handle('proxies:test', (_e, id) => testAndSave(id))
-  ipcMain.handle('proxies:testAll', () => testAll())
+  ipcMain.handle('proxies:testAll', (_e, filterIds?: string[]) => testAll(6, filterIds))
 
   createWindow()
 

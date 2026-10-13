@@ -116,6 +116,17 @@ export function removeProxy(id: string): void {
   save(st)
 }
 
+/** Xoa nhieu proxy 1 luc, ghi file 1 lan. */
+export function removeProxies(ids: string[]): { removed: number } {
+  const set = new Set(ids)
+  const st = load()
+  const before = st.items.length
+  st.items = st.items.filter((p) => !set.has(p.id))
+  const removed = before - st.items.length
+  if (removed > 0) save(st)
+  return { removed }
+}
+
 /** Test 1 proxy va luu ket qua vao kho. */
 export async function testAndSave(id: string): Promise<ProxyTestResult> {
   const item = getProxy(id)
@@ -125,9 +136,10 @@ export async function testAndSave(id: string): Promise<ProxyTestResult> {
   return res
 }
 
-/** Test tat ca (song song co gioi han), CHI ghi file 1 lan cho nhanh va tranh tranh chap. */
-export async function testAll(concurrency = 6): Promise<Record<string, ProxyTestResult>> {
-  const items = listProxies()
+/** Test tat ca hoac danh sach proxy duoc chon (song song co gioi han), CHI ghi file 1 lan cho nhanh va tranh tranh chap. */
+export async function testAll(concurrency = 6, filterIds?: string[]): Promise<Record<string, ProxyTestResult>> {
+  const all = listProxies()
+  const items = filterIds && filterIds.length > 0 ? all.filter((p) => filterIds.includes(p.id)) : all
   const out: Record<string, ProxyTestResult> = {}
   let i = 0
   const worker = async (): Promise<void> => {

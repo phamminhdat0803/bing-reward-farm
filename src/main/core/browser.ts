@@ -7,7 +7,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { chromium, devices } from 'playwright-core'
 import type { Browser, BrowserContext, Page } from 'playwright-core'
-import { pick, randInt, sleep } from './logger'
+import { cancellableSleep, pick, randInt, sleep } from './logger'
 import type { CoreConfig } from './types'
 
 export const MOBILE_DEVICES = ['iPhone 13', 'iPhone 14 Pro', 'Pixel 7', 'Galaxy S9+']
@@ -55,6 +55,7 @@ export function parseProxy(raw: string | null | undefined): ParsedProxy | null {
 }
 
 export function findBrowserExe(channel: string): string | null {
+  const local = process.env.LOCALAPPDATA || ''
   const candidates: Record<string, string[]> = {
     msedge: [
       'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -63,7 +64,16 @@ export function findBrowserExe(channel: string): string | null {
     chrome: [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
+      path.join(local, 'Google\\Chrome\\Application\\chrome.exe')
+    ],
+    coccoc: [
+      path.join(local, 'CocCoc\\Browser\\Application\\browser.exe'),
+      'C:\\Program Files\\CocCoc\\Browser\\Application\\browser.exe',
+      'C:\\Program Files (x86)\\CocCoc\\Browser\\Application\\browser.exe'
+    ],
+    brave: [
+      'C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+      path.join(local, 'BraveSoftware\\Brave-Browser\\Application\\brave.exe')
     ]
   }
   for (const p of candidates[channel] ?? []) {
@@ -98,8 +108,17 @@ function baseOptions(cfg: CoreConfig, mobile: boolean): Record<string, unknown> 
   }
   if (mobile) Object.assign(opts, devices[pick(MOBILE_DEVICES)])
   else opts.viewport = { width: 1366, height: 820 }
-  if (cfg.browser.executablePath) opts.executablePath = cfg.browser.executablePath
-  else opts.channel = cfg.browser.channel
+
+  const exe = cfg.browser.executablePath ?? findBrowserExe(cfg.browser.channel)
+  if (exe) {
+    opts.executablePath = exe
+  } else if (['chrome', 'msedge', 'chromium', 'chrome-beta', 'msedge-beta', 'msedge-dev'].includes(cfg.browser.channel)) {
+    opts.channel = cfg.browser.channel
+  } else {
+    const fallbackExe = findBrowserExe('msedge') ?? findBrowserExe('chrome')
+    if (fallbackExe) opts.executablePath = fallbackExe
+    else opts.channel = 'msedge'
+  }
 
   const parsed = parseProxy(cfg.browser.proxy)
   if (parsed) {
@@ -200,15 +219,31 @@ export async function waitForCdp(endpoint: string, timeoutMs = 30000): Promise<b
 export async function workPage(ctx: BrowserContext, reuse = true): Promise<Page> {
   const pages = ctx.pages()
   if (reuse) {
-    const blank = pages.find((p) => p.url() === 'about:blank')
+    const blank = pages.find((p) => p.url() === 'about:blank' || !p.url())
     if (blank) return blank
+    if (pages.length > 0) return pages[0]
   }
   return ctx.newPage()
 }
 
-export async function humanPause(cfg: CoreConfig, which: 'delay' | 'dwell' = 'delay'): Promise<void> {
+/** Dong moi tab about:blank hoac tab tro khong can thiet, chi giu lai 1 tab dang lam viec. */
+export async function closeStrayPages(ctx: BrowserContext, keepPage?: Page): Promise<void> {
+  const pages = ctx.pages()
+  for (const p of pages) {
+    if (keepPage && p === keepPage) continue
+    if (p.url() === 'about:blank' || !p.url() || p.isClosed()) {
+      await p.close().catch(() => {})
+    }
+  }
+}
+
+export async function humanPause(
+  cfg: CoreConfig,
+  which: 'delay' | 'dwell' = 'delay',
+  shouldStop?: () => boolean
+): Promise<void> {
   const range = which === 'dwell' ? cfg.search.dwellMs : { min: cfg.search.minDelayMs, max: cfg.search.maxDelayMs }
-  await sleep(randInt(range.min, range.max))
+  await cancellableSleep(randInt(range.min, range.max), shouldStop)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

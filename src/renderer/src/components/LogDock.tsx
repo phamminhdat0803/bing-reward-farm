@@ -46,7 +46,7 @@ export function LogDock({
   const last = shown[shown.length - 1]
 
   return (
-    <div className="shrink-0 rounded-[12px] border border-[var(--hairline)] bg-[var(--canvas)]">
+    <div className="shrink-0 border-t border-[var(--hairline)] bg-[var(--canvas)]">
       <div className="flex items-center gap-2.5 px-3 py-1.5">
         <button
           className="flex items-center gap-2 text-[13px] font-semibold"

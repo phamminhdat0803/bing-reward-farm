@@ -2,8 +2,9 @@
 // la duoc cong diem (do duoc 2026-10-13: 2 the +15d va 2 the +5d => +46 diem trong ~1 phut).
 // The referral (/refer, referandearn) KHONG cong diem -> bo qua. Punchcard /quest/ de rieng.
 import type { BrowserContext, Page } from 'playwright-core'
+import { closeStrayPages, workPage } from './browser'
 import { EARN_URL, readCounters } from './rewards'
-import { randInt, sleep } from './logger'
+import { cancellableSleep, randInt } from './logger'
 import type { CoreConfig, EarnResult, Logger } from './types'
 
 type OfferCard = { href: string; text: string; points: number | null }
@@ -64,16 +65,18 @@ async function readSectionProgress(page: Page): Promise<string | null> {
 export async function runEarnPass(args: {
   cfg: CoreConfig
   ctx: BrowserContext
+  page?: Page
   log: Logger
   shouldStop?: () => boolean
 }): Promise<EarnResult> {
   const { cfg, ctx, log, shouldStop } = args
-  const page = await ctx.newPage()
+  const page = args.page ?? (await workPage(ctx))
+  const ownPage = !args.page
   page.setDefaultTimeout(30000)
 
   let snap = await readCounters(page, log, { quiet: true })
   if (!snap.signedIn) {
-    await page.close()
+    if (ownPage) await page.close()
     return {
       status: 'not-signed-in',
       items: [],
@@ -87,7 +90,11 @@ export async function runEarnPass(args: {
   }
 
   await page.goto(EARN_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
-  await sleep(4000)
+  await cancellableSleep(4000, shouldStop)
+  if (shouldStop?.()) {
+    if (ownPage) await page.close()
+    return { status: 'stopped', items: [], sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
+  }
   // cuon het trang cho lazy-render roi ve dau
   await page
     .evaluate(async () => {
@@ -98,7 +105,11 @@ export async function runEarnPass(args: {
       window.scrollTo(0, 0)
     })
     .catch(() => {})
-  await sleep(1500)
+  await cancellableSleep(1500, shouldStop)
+  if (shouldStop?.()) {
+    if (ownPage) await page.close()
+    return { status: 'stopped', items: [], sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
+  }
 
   const pointsBefore = snap.points
   const todayBefore = snap.todayPoints
@@ -129,31 +140,38 @@ export async function runEarnPass(args: {
         ])
       }
       const tab: Page = opened ?? (await ctx.newPage())
-      if (!opened) {
-        // khong mo tab moi (hoac khong tim thay the) -> mo truc tiep URL offer
-        await tab.goto(card.href, { waitUntil: 'domcontentloaded' }).catch(() => {})
-      } else {
-        await tab.waitForLoadState('domcontentloaded').catch(() => {})
+      try {
+        if (!opened) {
+          // khong mo tab moi (hoac khong tim thay the) -> mo truc tiep URL offer
+          await tab.goto(card.href, { waitUntil: 'domcontentloaded' }).catch(() => {})
+        } else {
+          await tab.waitForLoadState('domcontentloaded').catch(() => {})
+        }
+        await cancellableSleep(randInt(cfg.earn.waitAfterClickMs.min, cfg.earn.waitAfterClickMs.max), shouldStop)
+        items.push({ label, href: card.href, points: card.points, visited: true })
+        log.info(
+          `[earn] da click${card.points ? ` +${card.points}d` : ''}: ${label}${opened ? ' [tab moi]' : ' [goto]'}`
+        )
+      } finally {
+        await tab.close().catch(() => {})
+        await closeStrayPages(ctx, page)
       }
-      await sleep(randInt(cfg.earn.waitAfterClickMs.min, cfg.earn.waitAfterClickMs.max))
-      items.push({ label, href: card.href, points: card.points, visited: true })
-      log.info(
-        `[earn] da click${card.points ? ` +${card.points}d` : ''}: ${label}${opened ? ' [tab moi]' : ' [goto]'}`
-      )
-      if (opened) await tab.close().catch(() => {})
-      else await tab.close().catch(() => {})
+      if (shouldStop?.()) break
       await page.bringToFront().catch(() => {})
-      await sleep(randInt(800, 2000))
+      await cancellableSleep(randInt(800, 2000), shouldStop)
     } catch (e) {
       log.warn(`[earn] loi voi "${label}": ${String((e as Error).message).slice(0, 160)}`)
       items.push({ label, href: card.href, points: card.points, visited: false })
+      await closeStrayPages(ctx, page)
     }
   }
 
-  await sleep(cfg.earn.settleMs)
-  const last = await readCounters(page, log, { quiet: true }).catch(() => null)
-  const sectionAfter = await readSectionProgress(page).catch(() => null)
-  await page.close()
+  if (!shouldStop?.()) {
+    await cancellableSleep(cfg.earn.settleMs, shouldStop)
+  }
+  const last = shouldStop?.() ? null : await readCounters(page, log, { quiet: true }).catch(() => null)
+  const sectionAfter = shouldStop?.() ? null : await readSectionProgress(page).catch(() => null)
+  if (ownPage) await page.close()
 
   const gained = (last?.points ?? 0) - (pointsBefore ?? 0)
   log.info(

@@ -19,14 +19,11 @@ export type BrowserState = {
 const running = new Map<string, BrowserState>()
 
 export async function cdpAlive(port: number): Promise<boolean> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(3000) })
-      if (res.ok) return true
-    } catch {
-      /* thu lai */
-    }
-    await new Promise((r) => setTimeout(r, 400))
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(600) })
+    if (res.ok) return true
+  } catch {
+    /* port dong */
   }
   return false
 }

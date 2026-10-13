@@ -1,8 +1,26 @@
-import { Chrome, Play, RefreshCw, X } from 'lucide-react'
+import {
+  Check,
+  Chrome,
+  Download,
+  Gift,
+  Play,
+  RefreshCw,
+  Smartphone,
+  Sparkles,
+  Square,
+  X
+} from 'lucide-react'
 import type { RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { Progress } from '@renderer/components/ui/progress'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import { fmtNum, pct, timeAgo } from '@renderer/lib/utils'
@@ -12,6 +30,7 @@ type Props = {
   selectedIds: string[]
   activeId: string | null
   busy: string | null
+  refreshingId?: string | null
   onToggle: (id: string) => void
   onToggleAll: () => void
   onOpenDetail: (id: string) => void
@@ -19,6 +38,7 @@ type Props = {
   onCloseBrowser: (id: string) => void
   onRefresh: (id: string) => void
   onRun: (id: string, kinds: string[]) => void
+  onStop: (id: string) => void
   /** id proxy -> tên gợi nhớ, để chip proxy hiển thị tên thay vì chuỗi dài */
   proxyLabels?: Record<string, string>
 }
@@ -56,18 +76,71 @@ function MiniBar({
 
 function StatusCell({ row }: { row: RowState }): React.JSX.Element {
   const c = row.cache
+  const hasExtra = row.browser.running || row.run.running || row.needsRefresh
+  const isSigned = !!c?.signedIn
+  const hasData = !!c
+
+  const signTitle = !hasData
+    ? 'Chưa có dữ liệu trạng thái'
+    : isSigned
+      ? `Đã đăng nhập: ${row.profile.account || row.profile.name}`
+      : `Chưa đăng nhập: ${row.profile.account || row.profile.name}`
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {!c ? (
-        <Badge variant="outline">chưa có dữ liệu</Badge>
-      ) : c.signedIn ? (
-        <Badge variant="success">đã đăng nhập</Badge>
+    <div className="flex items-center gap-1.5 whitespace-nowrap overflow-hidden">
+      {hasExtra ? (
+        // Khi có badge browser mở / đang chạy đi kèm: scale badge đăng nhập thành circle icon gọn gàng, fade-in, có tooltip
+        <div
+          title={signTitle}
+          className={
+            'group relative flex size-5.5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-all duration-200 cursor-help ' +
+            (!hasData
+              ? 'border-[var(--hairline)] bg-[var(--surface)] text-[var(--stone)]'
+              : isSigned
+                ? 'border-[#b7eb8f] bg-[#f6ffed] text-[#389e0d]'
+                : 'border-[#ffa39e] bg-[#fff1f0] text-[#cf1322]')
+          }
+        >
+          {!hasData ? (
+            <span className="animate-in fade-in zoom-in duration-200 text-[10px]">?</span>
+          ) : isSigned ? (
+            <Check className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
+          ) : (
+            <X className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
+          )}
+        </div>
       ) : (
-        <Badge variant="destructive">chưa đăng nhập</Badge>
+        // Bình thường: hiển thị badge đầy đủ
+        !c ? (
+          <Badge variant="outline" className="whitespace-nowrap transition-all duration-200">
+            chưa có dữ liệu
+          </Badge>
+        ) : c.signedIn ? (
+          <Badge variant="success" className="whitespace-nowrap transition-all duration-200">
+            đã đăng nhập
+          </Badge>
+        ) : (
+          <Badge variant="destructive" className="whitespace-nowrap transition-all duration-200">
+            chưa đăng nhập
+          </Badge>
+        )
       )}
-      {row.browser.running ? <Badge variant="beta">browser mở</Badge> : null}
-      {row.run.running ? <Badge variant="coral">đang chạy</Badge> : null}
-      {row.needsRefresh ? <Badge variant="warning">số liệu hôm qua</Badge> : null}
+
+      {row.browser.running ? (
+        <Badge variant="beta" className="whitespace-nowrap shrink-0">
+          browser mở
+        </Badge>
+      ) : null}
+      {row.run.running ? (
+        <Badge variant="coral" className="whitespace-nowrap shrink-0 animate-pulse">
+          đang chạy
+        </Badge>
+      ) : null}
+      {row.needsRefresh ? (
+        <Badge variant="warning" className="whitespace-nowrap shrink-0">
+          hôm qua
+        </Badge>
+      ) : null}
     </div>
   )
 }
@@ -87,24 +160,24 @@ export function AccountsTable(p: Props): React.JSX.Element {
   const allChecked = p.rows.length > 0 && p.selectedIds.length === p.rows.length
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-[var(--hairline)] bg-[var(--canvas)]">
-      <div className="min-h-0 flex-1 overflow-auto">
-        <Table className="min-w-[1480px]">
-          {/* colgroup: định hình độ rộng từng cột, bảng không nhảy cột khi dữ liệu đổi */}
-          <colgroup>
-            <col style={{ width: 44 }} />
-            <col style={{ width: 330 }} />
-            <col style={{ width: 205 }} />
-            <col style={{ width: 92 }} />
-            <col style={{ width: 92 }} />
-            <col style={{ width: 172 }} />
-            <col style={{ width: 118 }} />
-            <col style={{ width: 78 }} />
-            <col style={{ width: 172 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 118 }} />
-            <col style={{ width: 118 }} />
-          </colgroup>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
+      <Table className="w-full min-w-[1470px] table-fixed">
+        {/* colgroup: định hình độ rộng từng cột, bảng không nhảy cột khi dữ liệu đổi */}
+        <colgroup>
+          <col style={{ width: 40 }} />
+          <col style={{ width: 260 }} />
+          <col style={{ width: 170 }} />
+          <col style={{ width: 80 }} />
+          <col style={{ width: 75 }} />
+          <col style={{ width: 150 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 65 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 85 }} />
+          <col style={{ width: 95 }} />
+          <col style={{ width: 120 }} />
+        </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-[var(--surface)]">
             <TableHead>
@@ -121,9 +194,9 @@ export function AccountsTable(p: Props): React.JSX.Element {
             </TableHead>
             <TableHead className="text-right">Offers</TableHead>
             <TableHead>Daily set</TableHead>
-            <TableHead className="text-right">Search đã chạy</TableHead>
-            <TableHead>Cập nhật</TableHead>
-            <TableHead className="text-right">Thao tác</TableHead>
+            <TableHead className="text-center">Search đã chạy</TableHead>
+            <TableHead className="text-center">Cập nhật</TableHead>
+            <TableHead className="text-right pr-4">Thao tác</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -228,12 +301,12 @@ export function AccountsTable(p: Props): React.JSX.Element {
                   <TableCell>
                     <MiniBar progress={dailyProg} max={dailyMax} noData={!hasData} />
                   </TableCell>
-                  <TableCell className="mm-tabular text-right">{hasData ? searches : '—'}</TableCell>
-                  <TableCell className="whitespace-nowrap text-[12.5px] text-[var(--steel)]">
+                  <TableCell className="mm-tabular text-center">{hasData ? searches : '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap text-center text-[12.5px] text-[var(--steel)]">
                     {hasData ? timeAgo(c?.cachedAt) : '—'}
                   </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1">
+                  <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end items-center gap-1.5">
                       <Button
                         size="icon-sm"
                         variant="tertiary"
@@ -243,24 +316,66 @@ export function AccountsTable(p: Props): React.JSX.Element {
                       >
                         {row.browser.running ? <X className="size-3.5" /> : <Chrome className="size-3.5" />}
                       </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="tertiary"
-                        title="Cập nhật trạng thái (mở trình duyệt đọc điểm)"
-                        disabled={p.busy === `refresh:${row.id}`}
-                        onClick={() => p.onRefresh(row.id)}
-                      >
-                        <RefreshCw className={p.busy === `refresh:${row.id}` ? 'size-3.5 animate-spin' : 'size-3.5'} />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="tertiary"
-                        title="Chạy desktop + daily set + Keep earning + mobile"
-                        disabled={row.run.running}
-                        onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
-                      >
-                        <Play className="size-3.5" />
-                      </Button>
+                      {(() => {
+                        const isRefreshing = p.refreshingId === row.id || p.busy === `refresh:${row.id}`
+                        return (
+                          <Button
+                            size="icon-sm"
+                            variant="tertiary"
+                            title="Cập nhật trạng thái (mở trình duyệt đọc điểm)"
+                            disabled={isRefreshing}
+                            onClick={() => p.onRefresh(row.id)}
+                          >
+                            <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
+                          </Button>
+                        )
+                      })()}
+                      {row.run.running ? (
+                        <Button
+                          size="icon-sm"
+                          variant="danger"
+                          title="Dừng chạy tài khoản này"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            p.onStop(row.id)
+                          }}
+                        >
+                          <Square className="size-3.5 fill-current" />
+                        </Button>
+                      ) : (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              size="icon-sm"
+                              variant="tertiary"
+                              title="Chạy automation (bấm để chọn chức năng)"
+                            >
+                              <Play className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem
+                              onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
+                              className="gap-2"
+                            >
+                              <Play className="size-3.5" /> Chạy tất cả (Full)
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => p.onRun(row.id, ['desktop'])} className="gap-2">
+                              <Download className="size-3.5" /> Chỉ Search desktop
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => p.onRun(row.id, ['mobile'])} className="gap-2">
+                              <Smartphone className="size-3.5" /> Chỉ Search mobile
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => p.onRun(row.id, ['daily'])} className="gap-2">
+                              <Gift className="size-3.5" /> Chỉ Daily set
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => p.onRun(row.id, ['earn'])} className="gap-2">
+                              <Sparkles className="size-3.5" /> Chỉ Kiếm thêm (Keep earning)
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -269,7 +384,6 @@ export function AccountsTable(p: Props): React.JSX.Element {
           )}
         </TableBody>
       </Table>
-      </div>
 
       {/* Dòng trạng thái đáy bảng: luôn thấy tổng quan dù bảng dài */}
       <div className="flex shrink-0 items-center justify-between border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">

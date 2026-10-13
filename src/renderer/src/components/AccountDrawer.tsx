@@ -1,8 +1,30 @@
 import { useState } from 'react'
-import { Chrome, Copy, Gift, LogIn, LogOut, Play, RefreshCw, Trash2, Wifi } from 'lucide-react'
+import {
+  ChevronDown,
+  Chrome,
+  Copy,
+  Download,
+  Gift,
+  LogIn,
+  LogOut,
+  Play,
+  RefreshCw,
+  Smartphone,
+  Sparkles,
+  Square,
+  Trash2,
+  Wifi
+} from 'lucide-react'
 import type { LogLine, ProxyTestResult, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { Progress } from '@renderer/components/ui/progress'
 import { Separator } from '@renderer/components/ui/separator'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@renderer/components/ui/sheet'
@@ -19,6 +41,7 @@ type Props = {
   onCloseBrowser: (id: string) => void
   onLoginWindow: (id: string) => void
   onRun: (id: string, kinds: string[]) => void
+  onStop: (id: string) => void
   onSignOut: (id: string) => void
   onResetProfile: (id: string) => void
 }
@@ -169,15 +192,60 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                 <Button size="sm" variant="tertiary" className="gap-1.5" onClick={() => p.onLoginWindow(row.id)}>
                   <LogIn className="size-3.5" /> Đăng nhập
                 </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1.5"
-                  disabled={row.run.running}
-                  onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
-                >
-                  <Play className="size-3.5" /> Chạy
-                </Button>
+                {row.run.running ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    className="gap-1.5"
+                    onClick={() => p.onStop(row.id)}
+                  >
+                    <Square className="size-3.5 fill-current" /> Dừng chạy
+                  </Button>
+                ) : (
+                  <div className="flex items-center">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="rounded-r-none border-r-0 gap-1.5"
+                      onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
+                    >
+                      <Play className="size-3.5" /> Chạy
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="rounded-l-none px-1.5"
+                          title="Tuỳ chọn chức năng chạy"
+                        >
+                          <ChevronDown className="size-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-52">
+                        <DropdownMenuItem
+                          onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
+                          className="gap-2"
+                        >
+                          <Play className="size-3.5" /> Chạy tất cả (Full)
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => p.onRun(row.id, ['desktop'])} className="gap-2">
+                          <Download className="size-3.5" /> Chỉ Search desktop
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => p.onRun(row.id, ['mobile'])} className="gap-2">
+                          <Smartphone className="size-3.5" /> Chỉ Search mobile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => p.onRun(row.id, ['daily'])} className="gap-2">
+                          <Gift className="size-3.5" /> Chỉ Daily set
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => p.onRun(row.id, ['earn'])} className="gap-2">
+                          <Sparkles className="size-3.5" /> Chỉ Kiếm thêm (Keep earning)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                )}
                 <Button
                   size="sm"
                   variant="danger"

@@ -54,5 +54,22 @@ export function createLogger(opts: {
 }
 
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, Math.max(0, ms)))
+
+/** Sleep co the bi huy lap tuc khi shouldStop() tra ve true (kiem tra moi 200ms). */
+export function cancellableSleep(ms: number, shouldStop?: () => boolean): Promise<void> {
+  if (ms <= 0 || shouldStop?.()) return Promise.resolve()
+  const step = 200
+  let elapsed = 0
+  return new Promise((resolve) => {
+    const timer = setInterval(() => {
+      elapsed += step
+      if (elapsed >= ms || shouldStop?.()) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, step)
+  })
+}
+
 export const randInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min
 export const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)]
