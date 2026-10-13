@@ -3,9 +3,9 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { Slot } from 'radix-ui'
 import { cn } from '@renderer/lib/utils'
 
-// MiniMax badges: pill, caption-bold 13px, padding 4px 10px.
+// MiniMax badges: pill gọn — caption-bold 11.5px, padding 2px 7px (thu nhỏ 2026-10-13 theo yêu cầu)
 const badgeVariants = cva(
-  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full px-[10px] py-[4px] text-[13px] font-semibold leading-[1.5]',
+  'inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-full px-[7px] py-[2px] text-[11.5px] font-semibold leading-[1.45]',
   {
     variants: {
       variant: {

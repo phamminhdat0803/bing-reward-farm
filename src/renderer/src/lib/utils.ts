@@ -20,8 +20,8 @@ export function timeAgo(iso: string | null | undefined): string {
   const diff = Date.now() - new Date(iso).getTime()
   const m = Math.floor(diff / 60000)
   if (m < 1) return 'vừa xong'
-  if (m < 60) return `${m} phút trước`
+  if (m < 60) return `${m} phút`
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} giờ trước`
-  return `${Math.floor(h / 24)} ngày trước`
+  if (h < 24) return `${h} giờ`
+  return `${Math.floor(h / 24)} ngày`
 }

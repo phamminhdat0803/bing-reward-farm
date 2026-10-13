@@ -1,4 +1,4 @@
-import { Chrome, MoreHorizontal, Play, RefreshCw, X } from 'lucide-react'
+import { Chrome, Play, RefreshCw, X } from 'lucide-react'
 import type { RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -94,7 +94,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
           <colgroup>
             <col style={{ width: 44 }} />
             <col style={{ width: 330 }} />
-            <col style={{ width: 225 }} />
+            <col style={{ width: 205 }} />
             <col style={{ width: 92 }} />
             <col style={{ width: 92 }} />
             <col style={{ width: 172 }} />
@@ -102,8 +102,8 @@ export function AccountsTable(p: Props): React.JSX.Element {
             <col style={{ width: 78 }} />
             <col style={{ width: 172 }} />
             <col style={{ width: 100 }} />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 126 }} />
+            <col style={{ width: 118 }} />
+            <col style={{ width: 118 }} />
           </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-[var(--surface)]">
@@ -165,21 +165,18 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="truncate font-medium" title={row.profile.name}>
-                      {row.profile.name}
-                    </div>
-                    <div className="truncate text-[12.5px] text-[var(--steel)]" title={row.profile.account}>
-                      {row.profile.account || row.profile.id}
-                    </div>
-                    <div className="mm-micro flex items-center gap-1.5 whitespace-nowrap">
-                      <span>
-                        {row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}
-                        {row.profile.cdpPort ? ` · :${row.profile.cdpPort}` : ''}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-medium text-[13.5px] leading-tight" title={row.profile.name}>
+                        {row.profile.name}
                       </span>
                       {row.profile.proxyId || row.profile.proxy ? (
                         <span
-                          className="max-w-[130px] truncate rounded bg-[var(--surface-soft)] px-1 font-medium text-[var(--brand-blue-deep)]"
-                          title={row.profile.proxyId ? `proxy: ${p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId}` : (row.profile.proxy ?? '')}
+                          className="max-w-[110px] shrink-0 truncate rounded bg-[var(--surface-soft)] px-1 text-[11px] font-medium text-[var(--brand-blue-deep)]"
+                          title={
+                            row.profile.proxyId
+                              ? `proxy: ${p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId}`
+                              : (row.profile.proxy ?? '')
+                          }
                         >
                           🌐{' '}
                           {row.profile.proxyId
@@ -187,6 +184,17 @@ export function AccountsTable(p: Props): React.JSX.Element {
                             : cleanProxyDisplay(row.profile.proxy ?? '')}
                         </span>
                       ) : null}
+                    </div>
+                    <div
+                      className="mm-micro truncate"
+                      title={`${row.profile.account || row.profile.id} · ${row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}${row.profile.cdpPort ? ` :${row.profile.cdpPort}` : ''}`}
+                    >
+                      {row.profile.account || row.profile.id}
+                      <span className="text-[var(--stone)]">
+                        {' · '}
+                        {row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}
+                        {row.profile.cdpPort ? ` :${row.profile.cdpPort}` : ''}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -221,7 +229,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     <MiniBar progress={dailyProg} max={dailyMax} noData={!hasData} />
                   </TableCell>
                   <TableCell className="mm-tabular text-right">{hasData ? searches : '—'}</TableCell>
-                  <TableCell className="text-[13px] text-[var(--steel)]">
+                  <TableCell className="whitespace-nowrap text-[12.5px] text-[var(--steel)]">
                     {hasData ? timeAgo(c?.cachedAt) : '—'}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
@@ -247,14 +255,11 @@ export function AccountsTable(p: Props): React.JSX.Element {
                       <Button
                         size="icon-sm"
                         variant="tertiary"
-                        title="Chạy desktop + daily set + mobile"
+                        title="Chạy desktop + daily set + Keep earning + mobile"
                         disabled={row.run.running}
                         onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
                       >
                         <Play className="size-3.5" />
-                      </Button>
-                      <Button size="icon-sm" variant="ghost" title="Chi tiết" onClick={() => p.onOpenDetail(row.id)}>
-                        <MoreHorizontal className="size-3.5" />
                       </Button>
                     </div>
                   </TableCell>
