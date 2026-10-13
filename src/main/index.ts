@@ -8,6 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
+import { addProxy, listProxies, removeProxy, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -49,6 +50,7 @@ function createWindow(): void {
     if (process.env.BRF_DRAWER) q.set('drawer', '1')
     if (process.env.BRF_DOCK) q.set('dock', '1')
     if (process.env.BRF_BROWSERS) q.set('browsers', '1')
+    if (process.env.BRF_TAB) q.set('tab', String(process.env.BRF_TAB))
     const qs = q.toString()
     mainWindow.loadURL(qs ? `${base}/?${qs}` : base)
   } else {
@@ -110,6 +112,19 @@ function createWindow(): void {
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
     })
+  }
+
+  // Tien ich dev: BRF_SEED_PROXY=1 -> them 2 proxy mau vao kho (de kiem thu tab Proxy)
+  if (process.env.BRF_SEED_PROXY) {
+    void (async () => {
+      const cur = listProxies()
+      if (cur.length === 0) {
+        addProxy({ label: 'Demo HTTP (khong that)', url: 'http://127.0.0.1:8888', note: 'proxy mau de thu test' })
+        addProxy({ label: 'Demo SOCKS5', url: 'socks5://127.0.0.1:1080', note: 'proxy mau' })
+      }
+      // test luon de thay cot ket qua (2 proxy mau nay se bao loi — dung de kiem thu duong test)
+      await testAll()
+    })()
   }
 
   // Tien ich dev: BRF_REFRESH=1 -> tu bam "Cap nhat trang thai" (mo trinh duyet lay point)
@@ -310,6 +325,33 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
 
   // ---------- IPC: test proxy ----------
   ipcMain.handle('proxy:test', (_e, proxyStr) => testProxy(proxyStr))
+
+  // ---------- IPC: kho proxy (tab "Proxy") ----------
+  ipcMain.handle('proxies:list', () => listProxies())
+  ipcMain.handle('proxies:add', (_e, input) => {
+    try {
+      return { ok: true, item: addProxy(input) }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message) }
+    }
+  })
+  ipcMain.handle('proxies:update', (_e, { id, patch }) => {
+    try {
+      return { ok: true, item: updateProxy(id, patch) }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message) }
+    }
+  })
+  ipcMain.handle('proxies:remove', (_e, id) => {
+    try {
+      removeProxy(id)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String((e as Error).message) }
+    }
+  })
+  ipcMain.handle('proxies:test', (_e, id) => testAndSave(id))
+  ipcMain.handle('proxies:testAll', () => testAll())
 
   createWindow()
 

@@ -5,6 +5,7 @@ import type {
   DetectedBrowser,
   LogLine,
   Profile,
+  ProxyItem,
   ProxyTestResult,
   RefreshProgress,
   RowState,
@@ -28,6 +29,20 @@ const api = {
   resetProfile: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('profiles:reset', id),
   /** Kiem tra ket noi proxy (tra ve IP, vi tri, do tre ms) */
   testProxy: (proxyStr: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxy:test', proxyStr),
+
+  // ---------- Kho proxy (tab "Proxy") ----------
+  listProxies: (): Promise<ProxyItem[]> => ipcRenderer.invoke('proxies:list'),
+  addProxy: (input: Partial<ProxyItem>): Promise<{ ok: boolean; item?: ProxyItem; error?: string }> =>
+    ipcRenderer.invoke('proxies:add', input),
+  updateProxy: (
+    id: string,
+    patch: Partial<ProxyItem>
+  ): Promise<{ ok: boolean; item?: ProxyItem; error?: string }> =>
+    ipcRenderer.invoke('proxies:update', { id, patch }),
+  removeProxy: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('proxies:remove', id),
+  /** Test 1 proxy trong kho va luu ket qua */
+  testSavedProxy: (id: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxies:test', id),
+  testAllProxies: (): Promise<Record<string, ProxyTestResult>> => ipcRenderer.invoke('proxies:testAll'),
   /** Dò các trình duyệt đang cài trên máy */
   detectBrowsers: (force = false): Promise<DetectedBrowser[]> => ipcRenderer.invoke('browsers:detect', force),
 

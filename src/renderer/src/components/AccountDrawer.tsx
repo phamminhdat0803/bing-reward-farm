@@ -227,6 +227,11 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                 <Bar label="Desktop Bing search" progress={dProg} max={dMax} />
                 <Bar label="Mobile Bing search" progress={mProg} max={mMax} />
                 <Bar label="Daily set" progress={c?.dailySet?.progress ?? 0} max={c?.dailySet?.max ?? 3} />
+                <Bar
+                  label="Keep earning (thẻ kiếm thêm)"
+                  progress={c?.earn?.progress ?? 0}
+                  max={c?.earn ? c.earn.max : null}
+                />
                 <Bar label="Bing Search streak" progress={c?.searchStreak?.progress ?? 0} max={c?.searchStreak?.max ?? 1} />
                 <Bar label="Edge Minutes" progress={c?.edgeMinutes?.progress ?? 0} max={c?.edgeMinutes?.max ?? 30} />
                 <Bar label="Bing App Check-in" progress={c?.checkIn?.progress ?? 0} max={c?.checkIn?.max ?? 1} />

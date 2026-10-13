@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Settings2, MonitorCog } from 'lucide-react'
 import { toast } from 'sonner'
-import type { AppSettings, LogLine, Profile, RefreshProgress, RowState } from '@shared/types'
+import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Switch } from '@renderer/components/ui/switch'
@@ -11,6 +11,7 @@ import { AccountDialog } from '@renderer/components/AccountDialog'
 import { AccountDrawer } from '@renderer/components/AccountDrawer'
 import { BrowsersDialog } from '@renderer/components/BrowsersDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
+import { ProxyPanel } from '@renderer/components/ProxyPanel'
 import { LogDock } from '@renderer/components/LogDock'
 import { StatStrip } from '@renderer/components/StatStrip'
 import { Toaster } from '@renderer/components/ui/sonner'
@@ -30,6 +31,11 @@ export default function App(): React.JSX.Element {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
   const [browserCount, setBrowserCount] = useState(0)
+  const [tab, setTab] = useState<'accounts' | 'proxies'>(
+    () => (new URLSearchParams(location.search).get('tab') === 'proxies' ? 'proxies' : 'accounts')
+  )
+  const [proxyCount, setProxyCount] = useState(0)
+  const [proxies, setProxies] = useState<ProxyItem[]>([])
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   const activeRow = useMemo(() => rows.find((r) => r.id === activeId) ?? null, [rows, activeId])
@@ -55,6 +61,7 @@ export default function App(): React.JSX.Element {
     void reload()
     void window.api.getSettings().then(setSettingsState)
     void window.api.detectBrowsers().then((l) => setBrowserCount(l.filter((b) => b.chromium).length))
+    void window.api.listProxies().then((l) => setProxyCount(l.length))
     const offLog = window.api.onLog((line) => setLogs((prev) => [...prev.slice(-400), line]))
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
@@ -166,9 +173,37 @@ export default function App(): React.JSX.Element {
             <div className="mm-micro">Quản lý tài khoản Microsoft Rewards</div>
           </div>
           <nav className="ml-3 hidden items-center gap-0.5 md:flex">
-            <span className="rounded-full bg-[var(--surface)] px-3 py-1 text-[12.5px] font-medium">Tài khoản</span>
-            <span className="px-3 py-1 text-[12.5px] text-[var(--steel)]">Lịch sử</span>
-            <span className="px-3 py-1 text-[12.5px] text-[var(--steel)]">Cài đặt</span>
+            {(
+              [
+                { id: 'accounts', label: 'Tài khoản' },
+                { id: 'proxies', label: 'Proxy' },
+                { id: 'history', label: 'Lịch sử' },
+                { id: 'settings', label: 'Cài đặt' }
+              ] as const
+            ).map((t) =>
+              t.id === 'accounts' || t.id === 'proxies' ? (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  className={
+                    'rounded-full px-3 py-1 text-[12.5px] transition ' +
+                    (tab === t.id
+                      ? 'bg-[var(--surface)] font-medium text-[var(--ink)]'
+                      : 'text-[var(--steel)] hover:bg-[var(--surface)]')
+                  }
+                >
+                  {t.label}
+                  {t.id === 'proxies' && proxyCount > 0 ? (
+                    <span className="ml-1 text-[var(--stone)]">({proxyCount})</span>
+                  ) : null}
+                </button>
+              ) : (
+                <span key={t.id} className="px-3 py-1 text-[12.5px] text-[var(--stone)]" title="Sẽ làm sau">
+                  {t.label}
+                </span>
+              )
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">
@@ -196,7 +231,9 @@ export default function App(): React.JSX.Element {
       {/* Nội dung */}
       <main className="flex min-h-0 flex-1 flex-col p-2.5">
         <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col gap-2">
-          <StatStrip rows={rows} />
+          {tab === 'accounts' ? (
+            <>
+              <StatStrip rows={rows} />
 
           <AppToolbar
             selectedCount={targetIds.length}
@@ -264,7 +301,21 @@ export default function App(): React.JSX.Element {
             onCloseBrowser={(id) => void withBrowser(id, 'close')}
             onRefresh={(id) => void refreshPoints([id])}
             onRun={(id, kinds) => void runKinds([id], kinds)}
+            proxyLabels={Object.fromEntries(proxies.map((p) => [p.id, p.label]))}
           />
+            </>
+          ) : (
+            <ProxyPanel
+              rows={rows}
+              onChanged={() => {
+                void window.api.listProxies().then((l) => {
+                  setProxyCount(l.length)
+                  setProxies(l)
+                })
+                void reload()
+              }}
+            />
+          )}
 
           <LogDock
             lines={logs}

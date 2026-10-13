@@ -14,7 +14,7 @@ import { Label } from '@renderer/components/ui/label'
 import { Switch } from '@renderer/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
 import { Check } from 'lucide-react'
-import type { DetectedBrowser, Profile, ProxyTestResult } from '@shared/types'
+import type { DetectedBrowser, Profile, ProxyItem, ProxyTestResult } from '@shared/types'
 
 const FALLBACK: DetectedBrowser[] = [
   { id: 'msedge', name: 'Microsoft Edge', exe: '', version: null, chromium: true, autoSignInRisk: true },
@@ -38,7 +38,9 @@ export function AccountDialog({
   const [cdpPort, setCdpPort] = useState('')
   const [note, setNote] = useState('')
   const [channel, setChannel] = useState('msedge')
-  const [proxy, setProxy] = useState('')
+  const [proxyId, setProxyId] = useState('')
+  const [proxyList, setProxyList] = useState<ProxyItem[]>([])
+  const [manageProxyHint, setManageProxyHint] = useState(false)
   const [testingProxy, setTestingProxy] = useState(false)
   const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null)
   const [browsers, setBrowsers] = useState<DetectedBrowser[]>([])
@@ -51,6 +53,7 @@ export function AccountDialog({
   useEffect(() => {
     if (!open) return
     void window.api.detectBrowsers().then((list) => setBrowsers(list.filter((b) => b.chromium)))
+    void window.api.listProxies().then(setProxyList)
   }, [open])
 
   useEffect(() => {
@@ -61,7 +64,8 @@ export function AccountDialog({
     setCdpPort(initial?.cdpPort ? String(initial.cdpPort) : '')
     setNote(initial?.note ?? '')
     setChannel(initial?.channel ?? 'msedge')
-    setProxy(initial?.proxy ?? '')
+    setProxyId(initial?.proxyId ?? '')
+    setManageProxyHint(false)
     setProxyResult(null)
     setHeadless(initial?.headless ?? false)
 
@@ -88,13 +92,16 @@ export function AccountDialog({
     }
   }, [open, initial])
 
+  const selectedProxy = proxyList.find((p) => p.id === proxyId) ?? null
+
   const handleTestProxy = async (): Promise<void> => {
-    if (!proxy.trim()) return
+    if (!selectedProxy) return
     setTestingProxy(true)
     setProxyResult(null)
     try {
-      const res = await window.api.testProxy(proxy.trim())
+      const res = await window.api.testSavedProxy(selectedProxy.id)
       setProxyResult(res)
+      setProxyList(await window.api.listProxies())
     } finally {
       setTestingProxy(false)
     }
@@ -127,7 +134,9 @@ export function AccountDialog({
         account: account.trim(),
         profileDir: profileDir.trim() || undefined,
         cdpPort: cdpPort ? Number(cdpPort) : undefined,
-        proxy: proxy.trim() || undefined,
+        proxyId: proxyId || null,
+        // giu chuoi proxy cu chi khi KHONG gan proxy tu kho
+        proxy: proxyId ? null : (initial?.proxy ?? null),
         note: note.trim() || undefined,
         channel,
         headless,
@@ -332,30 +341,85 @@ export function AccountDialog({
           <TabsContent value="adv" className="mt-3 min-h-0 flex-1 space-y-3 overflow-auto pr-0.5">
             <div className="grid gap-1.5">
               <div className="flex items-center justify-between">
-                <Label htmlFor="a-proxy">Proxy (tuỳ chọn)</Label>
-                {proxy.trim() ? (
+                <Label>Proxy (chọn từ kho)</Label>
+                <div className="flex items-center gap-1">
                   <Button
                     type="button"
                     variant="tertiary"
                     size="sm"
-                    className="h-6 gap-1 px-2.5 text-[11.5px]"
-                    disabled={testingProxy}
+                    className="h-6 gap-1 px-2 text-[11.5px]"
+                    disabled={testingProxy || !selectedProxy}
                     onClick={handleTestProxy}
                   >
                     <Wifi className={testingProxy ? 'size-3 animate-spin' : 'size-3'} />
-                    {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra proxy'}
+                    {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra'}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="tertiary"
+                    size="sm"
+                    className="h-6 gap-1 px-2 text-[11.5px]"
+                    onClick={() => setManageProxyHint(true)}
+                  >
+                    Quản lý kho proxy
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProxyId('')
+                    setProxyResult(null)
+                  }}
+                  className={
+                    'flex items-center justify-between rounded-[10px] border px-2.5 py-1.5 text-left transition ' +
+                    (proxyId === ''
+                      ? 'border-[var(--ink)] bg-[var(--surface)]'
+                      : 'border-[var(--hairline)] hover:bg-[var(--surface)]')
+                  }
+                >
+                  <div>
+                    <div className="text-[13px] font-semibold">Không dùng proxy</div>
+                    <div className="mm-micro">Đi trực tiếp bằng mạng của máy</div>
+                  </div>
+                  {proxyId === '' ? <Check className="size-4 shrink-0" /> : null}
+                </button>
+                {proxyList.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setProxyId(p.id)
+                      setProxyResult(p.lastTest ?? null)
+                    }}
+                    className={
+                      'flex items-center justify-between gap-3 rounded-[10px] border px-2.5 py-1.5 text-left transition ' +
+                      (proxyId === p.id
+                        ? 'border-[var(--ink)] bg-[var(--surface)]'
+                        : 'border-[var(--hairline)] hover:bg-[var(--surface)]')
+                    }
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold">{p.label}</div>
+                      <div className="mm-micro truncate">
+                        {p.url}
+                        {p.lastTest?.ok
+                          ? ` · IP ${p.lastTest.ip}${p.lastTest.country ? ` (${p.lastTest.country})` : ''}`
+                          : p.lastTest
+                            ? ' · test lỗi'
+                            : ' · chưa test'}
+                      </div>
+                    </div>
+                    {proxyId === p.id ? <Check className="size-4 shrink-0" /> : null}
+                  </button>
+                ))}
+                {proxyList.length === 0 ? (
+                  <div className="mm-micro">
+                    Kho proxy đang trống — sang tab <b>Proxy</b> để thêm, sau đó quay lại đây chọn.
+                  </div>
                 ) : null}
               </div>
-              <Input
-                id="a-proxy"
-                value={proxy}
-                onChange={(e) => {
-                  setProxy(e.target.value)
-                  setProxyResult(null)
-                }}
-                placeholder="http://user:pass@host:port hoặc host:port:user:pass"
-              />
               {proxyResult ? (
                 <div
                   className={
@@ -380,12 +444,13 @@ export function AccountDialog({
                     <span>✕ Lỗi: {proxyResult.error}</span>
                   )}
                 </div>
-              ) : (
+              ) : null}
+              {manageProxyHint ? (
                 <div className="mm-micro">
-                  Hỗ trợ HTTP, HTTPS, SOCKS5 (<code>host:port</code>, <code>host:port:user:pass</code> hoặc{' '}
-                  <code>protocol://…</code>). Bỏ trống = dùng mạng máy trực tiếp.
+                  Đóng hộp này, bấm tab <b>Proxy</b> trên thanh trên để thêm/sửa/kiểm tra proxy, rồi mở lại tài khoản
+                  để gán.
                 </div>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between rounded-[10px] border border-[var(--hairline)] px-3 py-2">

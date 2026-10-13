@@ -19,6 +19,8 @@ type Props = {
   onCloseBrowser: (id: string) => void
   onRefresh: (id: string) => void
   onRun: (id: string, kinds: string[]) => void
+  /** id proxy -> tên gợi nhớ, để chip proxy hiển thị tên thay vì chuỗi dài */
+  proxyLabels?: Record<string, string>
 }
 
 function MiniBar({
@@ -87,7 +89,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-[var(--hairline)] bg-[var(--canvas)]">
       <div className="min-h-0 flex-1 overflow-auto">
-        <Table className="min-w-[1360px]">
+        <Table className="min-w-[1480px]">
           {/* colgroup: định hình độ rộng từng cột, bảng không nhảy cột khi dữ liệu đổi */}
           <colgroup>
             <col style={{ width: 44 }} />
@@ -96,7 +98,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
             <col style={{ width: 92 }} />
             <col style={{ width: 92 }} />
             <col style={{ width: 172 }} />
-            <col style={{ width: 172 }} />
+            <col style={{ width: 118 }} />
             <col style={{ width: 78 }} />
             <col style={{ width: 172 }} />
             <col style={{ width: 100 }} />
@@ -114,6 +116,9 @@ export function AccountsTable(p: Props): React.JSX.Element {
             <TableHead className="text-right">Hôm nay</TableHead>
             <TableHead>Search desktop</TableHead>
             <TableHead>Search mobile</TableHead>
+            <TableHead title="Mục Keep earning trên trang /earn — tài khoản không có mục này sẽ hiện “không có”">
+              Keep earning
+            </TableHead>
             <TableHead className="text-right">Offers</TableHead>
             <TableHead>Daily set</TableHead>
             <TableHead className="text-right">Search đã chạy</TableHead>
@@ -124,7 +129,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
         <TableBody>
           {p.rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={12} className="py-12 text-center text-[var(--steel)]">
+              <TableCell colSpan={13} className="py-12 text-center text-[var(--steel)]">
                 Chưa có tài khoản nào — bấm “Thêm tài khoản”.
               </TableCell>
             </TableRow>
@@ -171,12 +176,15 @@ export function AccountsTable(p: Props): React.JSX.Element {
                         {row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}
                         {row.profile.cdpPort ? ` · :${row.profile.cdpPort}` : ''}
                       </span>
-                      {row.profile.proxy ? (
+                      {row.profile.proxyId || row.profile.proxy ? (
                         <span
-                          className="max-w-[120px] truncate rounded bg-[var(--surface-soft)] px-1 font-medium text-[var(--brand-blue-deep)]"
-                          title={row.profile.proxy}
+                          className="max-w-[130px] truncate rounded bg-[var(--surface-soft)] px-1 font-medium text-[var(--brand-blue-deep)]"
+                          title={row.profile.proxyId ? `proxy: ${p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId}` : (row.profile.proxy ?? '')}
                         >
-                          🌐 {cleanProxyDisplay(row.profile.proxy)}
+                          🌐{' '}
+                          {row.profile.proxyId
+                            ? (p.proxyLabels?.[row.profile.proxyId] ?? 'proxy đã xoá')
+                            : cleanProxyDisplay(row.profile.proxy ?? '')}
                         </span>
                       ) : null}
                     </div>
@@ -198,6 +206,15 @@ export function AccountsTable(p: Props): React.JSX.Element {
                   </TableCell>
                   <TableCell>
                     <MiniBar progress={mProg} max={mMax} noData={!hasData && mMax == null} />
+                  </TableCell>
+                  <TableCell>
+                    {!hasData ? (
+                      <span className="text-[13px] text-[var(--stone)]">—</span>
+                    ) : c?.earn ? (
+                      <MiniBar progress={c.earn.progress} max={c.earn.max} />
+                    ) : (
+                      <span className="text-[12px] text-[var(--stone)]">không có</span>
+                    )}
                   </TableCell>
                   <TableCell className="mm-tabular text-right">{hasData ? fmtNum(c?.offers) : '—'}</TableCell>
                   <TableCell>

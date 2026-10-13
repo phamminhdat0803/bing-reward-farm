@@ -64,6 +64,8 @@ export type Breakdown = {
   month: number | null
   year: number | null
   lifetime: number | null
+  /** Muc "Keep earning x/y" tren /earn (the daily offer) */
+  earn: Progress
 }
 
 /** Parser thuan tuy cho drawer "Points breakdown". */
@@ -98,7 +100,8 @@ export function parseBreakdownText(text: string): Breakdown {
     offers: one('Offers'),
     month: one('This month'),
     year: one('This year'),
-    lifetime: one('Lifetime')
+    lifetime: one('Lifetime'),
+    earn: pair('Keep earning')
   }
 }
 
@@ -242,11 +245,23 @@ export async function readBreakdown(page: Page, log?: Logger): Promise<Breakdown
 
   const parsed: Breakdown = text
     ? parseBreakdownText(text)
-    : { todayPoints: null, desktop: null, mobile: null, offers: null, month: null, year: null, lifetime: null }
+    : { todayPoints: null, desktop: null, mobile: null, offers: null, month: null, year: null, lifetime: null, earn: null }
   if (parsed.todayPoints === null) parsed.todayPoints = fallbackToday
+
+  // "Keep earning x/y" nam tren than trang /earn (khong nam trong drawer)
+  if (!parsed.earn) {
+    parsed.earn = await page
+      .evaluate(() => {
+        const t = (document.body?.innerText || '').replace(/\s+/g, ' ')
+        const m = t.match(/Keep earning\s*(\d{1,4})\s*\/\s*(\d{1,4})/i)
+        return m ? { progress: Number(m[1]), max: Number(m[2]) } : null
+      })
+      .catch(() => null)
+  }
+
   log?.info(
     `breakdown: hom-nay=${parsed.todayPoints} desktop=${fmtCounter(parsed.desktop)} mobile=${fmtCounter(parsed.mobile)} ` +
-      `offers=${parsed.offers} thang=${parsed.month} lifetime=${parsed.lifetime}`
+      `offers=${parsed.offers} keepEarning=${fmtCounter(parsed.earn)} thang=${parsed.month} lifetime=${parsed.lifetime}`
   )
   return { ...parsed, raw: text, opened: !!text }
 }

@@ -15,6 +15,8 @@ export type Profile = {
   desktopMax?: number | null
   mobileMax?: number | null
   proxy?: string | null
+  /** Id proxy trong kho (tab Proxy) — uu tien hon `proxy` */
+  proxyId?: string | null
   note?: string
   createdAt: string
   lastRunAt: string | null

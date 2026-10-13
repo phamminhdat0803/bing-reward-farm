@@ -29,6 +29,24 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 | `src/renderer/src/App.tsx` | layout MiniMax: banner + topnav + StatStrip + AppToolbar + **AccountsTable full-width** + **AccountDrawer** + LogPanel |
 | `src/renderer/src/components/` | `AppToolbar` (kiểu GPMLogin), `AccountsTable` (12 cột), `AccountDrawer` (Sheet chi tiết), `AccountDialog`, `StatStrip`, `LogPanel`, `ui/*` (shadcn đã chỉnh theo MiniMax) |
 
+## Tab "Proxy" (kho proxy dùng chung) — 2026-10-13
+
+- Kho ở `%APPDATA%\bing-reward-farm\proxies.json` (`src/main/proxies.ts`): `{id, label, url, note, lastTest, createdAt}`.
+- IPC: `proxies:list/add/update/remove/test/testAll`; preload: `listProxies/addProxy/updateProxy/removeProxy/testSavedProxy/testAllProxies`.
+- UI: `ProxyPanel.tsx` (bảng Tên · Chuỗi proxy · Kết quả test gần nhất · Tài khoản đang dùng · Thao tác) + `ProxyDialog.tsx` (có nút **Kiểm tra ngay**).
+- **Tài khoản chỉ chọn proxy**: `AccountDialog` tab *Nâng cao* liệt kê proxy trong kho (không gõ chuỗi nữa) → lưu `profile.proxyId`.
+  `resolveProxyUrl(profile)` ưu tiên `proxyId` → fallback chuỗi `profile.proxy` cũ; `coreConfig()` dùng hàm này nên launch automation tự có proxy.
+- Xoá proxy đang được gắn ⇒ UI chặn và báo phải đổi proxy cho các acc đó trước.
+- Đo thật: seed 2 proxy giả `127.0.0.1:8888` / `socks5://127.0.0.1:1080` → test trả
+  `Không thể kết nối đến máy chủ proxy (Connection refused)`, kết quả lưu vào `lastTest` và hiện badge **LỖI** (đường test chạy đúng).
+
+## Cột "Keep earning" — tài khoản nào có mục này
+
+- `parseBreakdownText` và `readBreakdown` giờ đọc thêm `Keep earning x/y` từ **thân trang** `/earn` (không nằm trong drawer) → `snapshot.earn`.
+- Bảng có cột **Keep earning** (giữa *Search mobile* và *Offers*): `x/y` + thanh tiến độ; `0/0` = khu vực không có mục; `không có` = cache cũ chưa đọc lại.
+- Đo thật 2026-10-13 16:18 (refresh 4 acc): chính `45/45` · Tháp Vu (Đài Loan) `0/0` · Tiến Đạt Dương `0/65` · Kẻ Đào (cache cũ) `không có`
+  ⇒ **nhìn cột là biết acc nào còn điểm chưa lấy** (2 acc còn 65đ).
+
 ## Kịch bản "Keep earning" (`kind: 'earn'`) — đo thật 2026-10-13
 
 Trang `https://rewards.bing.com/earn` có mục **Keep earning x/y**; các thẻ *daily offer* ở đó **click là được cộng điểm ngay**.

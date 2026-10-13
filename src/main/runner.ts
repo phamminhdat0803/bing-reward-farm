@@ -17,6 +17,7 @@ import { DEFAULTS, type CoreConfig, type LogLine } from './core/types'
 import { browserState, closeBrowser, markRun } from './browsers'
 import { withProfileLock } from './lock'
 import { logDir, stateFile, type Profile } from './profiles'
+import { resolveProxyUrl } from './proxies'
 
 export type Snapshot = {
   profileId: string
@@ -29,6 +30,8 @@ export type Snapshot = {
   desktop: { progress: number; max: number } | null
   mobile: { progress: number; max: number } | null
   offers: number | null
+  /** Muc "Keep earning x/y" tren /earn — null nghia la tai khoan/khu vuc khong co muc nay */
+  earn: { progress: number; max: number } | null
   month: number | null
   year: number | null
   lifetime: number | null
@@ -58,7 +61,7 @@ export function coreConfig(profile: Profile, overrides: Partial<CoreConfig['brow
   cfg.browser.profileDir = profile.profileDir
   cfg.browser.headless = profile.headless
   cfg.browser.channel = channel
-  cfg.browser.proxy = profile.proxy ?? null
+  cfg.browser.proxy = resolveProxyUrl(profile)
   // Dung dung file exe da do duoc (ho tro ca Brave/Coc Coc/Vivaldi... chu khong chi Edge/Chrome)
   cfg.browser.executablePath = exeForCached(channel)
   cfg.browser = { ...cfg.browser, ...overrides }
@@ -129,6 +132,7 @@ async function snapshotUnlocked(profile: Profile): Promise<Snapshot> {
     desktop: null,
     mobile: null,
     offers: null,
+    earn: null,
     month: null,
     year: null,
     lifetime: null,
@@ -158,6 +162,7 @@ async function snapshotUnlocked(profile: Profile): Promise<Snapshot> {
         base.desktop = bd?.desktop ?? null
         base.mobile = bd?.mobile ?? null
         base.offers = bd?.offers ?? null
+        base.earn = bd?.earn ?? null
         base.month = bd?.month ?? null
         base.year = bd?.year ?? null
         base.lifetime = bd?.lifetime ?? null
@@ -170,7 +175,7 @@ async function snapshotUnlocked(profile: Profile): Promise<Snapshot> {
         log.info(
           `snapshot OK: dang-nhap=${base.signedIn} diem=${base.points} hom-nay=${base.todayPoints} ` +
             `desktop=${base.desktop?.progress ?? '?'}/${base.desktop?.max ?? '?'} mobile=${base.mobile?.progress ?? '?'}/${base.mobile?.max ?? '?'} ` +
-            `offers=${base.offers} dailySet=${base.dailySet?.progress ?? '?'}/${base.dailySet?.max ?? '?'} links=${base.setLinks.length}`
+            `offers=${base.offers} keepEarning=${base.earn ? `${base.earn.progress}/${base.earn.max}` : 'n/a'} dailySet=${base.dailySet?.progress ?? '?'}/${base.dailySet?.max ?? '?'} links=${base.setLinks.length}`
         )
       } finally {
         await page.close().catch(() => {})

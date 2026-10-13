@@ -16,6 +16,8 @@ export type Profile = {
   mobileMax?: number | null
   /** Chuoi proxy: vd http://host:port, socks5://host:port, hoac host:port:user:pass */
   proxy?: string | null
+  /** Id proxy trong kho (tab "Proxy") — uu tien hon `proxy` */
+  proxyId?: string | null
   note?: string
   createdAt: string
   lastRunAt: string | null
@@ -32,6 +34,17 @@ export type ProxyTestResult = {
 
 export type Progress = { progress: number; max: number } | null
 
+/** 1 proxy trong kho dung chung (tab "Proxy"). */
+export type ProxyItem = {
+  id: string
+  label: string
+  url: string
+  note?: string
+  /** Ket qua test gan nhat (luu kem thoi diem) */
+  lastTest?: (ProxyTestResult & { at: string }) | null
+  createdAt: string
+}
+
 export type Snapshot = {
   profileId: string
   at: string
@@ -43,6 +56,8 @@ export type Snapshot = {
   desktop: Progress
   mobile: Progress
   offers: number | null
+  /** "Keep earning x/y" trên /earn — null = tài khoản/khu vực không có mục này */
+  earn: Progress
   month: number | null
   year: number | null
   lifetime: number | null
@@ -54,8 +69,7 @@ export type Snapshot = {
   setLinks: { idx: number; href: string; text: string; reward: string | null }[]
   browser: { running: boolean; pid: number | null; cdpUrl: string | null }
   runs: { desktop: unknown; mobile: unknown; daily: unknown }
-  error?: string
-}
+  error?: string}
 
 export type RunKind = 'desktop' | 'mobile' | 'daily'
 
