@@ -4,6 +4,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { ProxyItem, ProxyTestResult } from '../shared/types'
+import { request } from 'playwright-core'
+import { parseProxy } from './core/browser'
 import { testProxy } from './proxy-test'
 
 type Store = { version: number; items: ProxyItem[] }
@@ -98,15 +100,94 @@ export function resolveProxyChain(profile: {
   return out
 }
 
-/** Preflight: tra ve cac proxy CON SONG trong chain (giu nguyen thu tu). */
-export async function preflightChain(chain: string[]): Promise<{ live: string[]; dead: { proxy: string; error?: string }[] }> {
+/** Trang thai suc khoe 1 proxy (do qua ip-api VA bing.com). */
+export type ProxyHealth = {
+  status: 'live' | 'dead' | 'blocks-bing'
+  ip?: string
+  country?: string
+  latency?: number
+  error?: string
+  checkedAt: string
+}
+
+const COOLDOWN_MS = 5 * 60 * 1000 // Chromium danh dau bad proxy ~5 phut -> cooldown >= 5 phut
+const cooldownUntil: Record<string, number> = {}
+const healthCache: Record<string, ProxyHealth> = {}
+
+/**
+ * Kiem tra suc khoe proxy: ip-api (ket noi duoc) + bing.com (dung duoc cho Rewards).
+ * Proxy thong ip-api nhung bi Bing chan (reset/403) => 'blocks-bing', KHONG dung lam chain.
+ * Ket qua fail bi cooldown 5 phut de khong test lai lien tuc (tranh ping-pong A<->B).
+ */
+export async function checkProxyHealth(url: string, opts: { force?: boolean } = {}): Promise<ProxyHealth> {
+  const now = Date.now()
+  const cached = healthCache[url]
+  if (!opts.force && cached && (cooldownUntil[url] ?? 0) > now) return cached
+
+  const base = await testProxy(url)
+  const at = new Date().toISOString()
+  let health: ProxyHealth
+
+  if (!base.ok) {
+    health = { status: 'dead', latency: base.latency, error: base.error, checkedAt: at }
+  } else {
+    const parsed = parseProxy(url)
+    if (!parsed) {
+      health = { status: 'dead', error: 'khong phan tich duoc chuoi proxy', checkedAt: at }
+    } else {
+      const t0 = Date.now()
+      let bingOk = false
+      let bingErr: string | undefined
+      try {
+        const req = await request.newContext({
+          proxy: { server: parsed.server, username: parsed.username, password: parsed.password },
+          timeout: 15000
+        })
+        try {
+          const res = await req.get('https://www.bing.com/?FORM=Z9FD1', { timeout: 15000 })
+          bingOk = res.status() < 400
+          if (!bingOk) bingErr = `Bing tra HTTP ${res.status()}`
+        } finally {
+          await req.dispose().catch(() => {})
+        }
+      } catch (e) {
+        bingErr = String((e as Error).message).split('\n')[0].slice(0, 110)
+      }
+      health = bingOk
+        ? {
+            status: 'live',
+            ip: base.ip,
+            country: base.country,
+            latency: Date.now() - t0,
+            checkedAt: at
+          }
+        : {
+            status: 'blocks-bing',
+            ip: base.ip,
+            country: base.country,
+            latency: base.latency,
+            error: bingErr ?? 'khong vao duoc bing',
+            checkedAt: at
+          }
+    }
+  }
+
+  healthCache[url] = health
+  if (health.status !== 'live') cooldownUntil[url] = Date.now() + COOLDOWN_MS
+  return health
+}
+
+/** Preflight: tra ve cac proxy DUNG DUOC (qua duoc bing) trong chain, giu nguyen thu tu. */
+export async function preflightChain(
+  chain: string[]
+): Promise<{ live: string[]; dead: { proxy: string; error?: string }[] }> {
   const live: string[] = []
   const dead: { proxy: string; error?: string }[] = []
   for (const p of chain) {
     // eslint-disable-next-line no-await-in-loop
-    const r = await testProxy(p)
-    if (r.ok) live.push(p)
-    else dead.push({ proxy: p, error: r.error })
+    const h = await checkProxyHealth(p)
+    if (h.status === 'live') live.push(p)
+    else dead.push({ proxy: p, error: `${h.status === 'blocks-bing' ? 'song nhung CHAN BING' : 'chet'}: ${h.error ?? ''}` })
   }
   return { live, dead }
 }
