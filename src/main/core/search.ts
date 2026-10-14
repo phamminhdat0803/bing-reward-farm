@@ -202,10 +202,16 @@ export async function runSearchPass(args: {
     } catch (e) {
       const msg = String((e as Error).message)
       log.warn(`[${kind}] loi khi search "${q}": ${msg.slice(0, 160)}`)
-      if (/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_PROXY_AUTH/i.test(msg)) {
+      // Loi mang/proxy: proxy chet, proxy chan bing, chain het proxy... => dung luot ngay,
+      // KHONG de chay 30 search vo ich va khong bao gio fallback DIRECT.
+      if (
+        /ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_PROXY_AUTH|ERR_SOCKS_CONNECTION_FAILED|ERR_CONNECTION_RESET|ERR_CONNECTION_CLOSED|ERR_CONNECTION_REFUSED|ERR_CONNECTION_TIMED_OUT|ERR_TIMED_OUT|ERR_EMPTY_RESPONSE|ERR_INTERNET_DISCONNECTED/i.test(
+          msg
+        )
+      ) {
         status = 'proxy-failed'
         log.error(
-          `[${kind}] proxy loi (${msg.split('\n')[0].slice(0, 90)}) - dung luot, khong fallback DIRECT`
+          `[${kind}] loi mang/proxy (${msg.split('\n')[0].slice(0, 100)}) - dung luot, khong fallback DIRECT`
         )
         break
       }
