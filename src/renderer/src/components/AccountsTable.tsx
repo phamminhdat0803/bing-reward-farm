@@ -11,8 +11,12 @@ import {
   Sparkles,
   Square,
   Trash2,
-  X
+  X,
+  Clock,
+  Loader2,
+  MonitorCog
 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import type { RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -105,61 +109,88 @@ function StatusCell({ row }: { row: RowState }): React.JSX.Element {
       ? `Đã đăng nhập: ${row.profile.account || row.profile.name}`
       : `Chưa đăng nhập: ${row.profile.account || row.profile.name}`
 
+  // Icon tròn + tooltip shadcn: dùng khi có từ 2 badge trở lên để cột Trạng thái không bị dài
+  const dot = (opts: {
+    key: string
+    tip: string
+    cls: string
+    children: React.ReactNode
+  }): React.JSX.Element => (
+    <Tooltip key={opts.key}>
+      <TooltipTrigger asChild>
+        <div
+          className={
+            'flex size-5.5 shrink-0 cursor-help items-center justify-center rounded-full border transition-all duration-200 ' +
+            opts.cls
+          }
+        >
+          {opts.children}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">{opts.tip}</TooltipContent>
+    </Tooltip>
+  )
+
   return (
     <div className="flex items-center gap-1.5 whitespace-nowrap overflow-hidden">
       {hasExtra ? (
-        // Khi có badge browser mở / đang chạy đi kèm: scale badge đăng nhập thành circle icon gọn gàng, fade-in, có tooltip
-        <div
-          title={signTitle}
-          className={
-            'group relative flex size-5.5 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-all duration-200 cursor-help ' +
-            (!hasData
+        // Có badge phụ (browser mở / đang chạy / dữ liệu cũ): TẤT CẢ đều thu nhỏ thành icon tròn như badge đầu
+        <>
+          {dot({
+            key: 'sign',
+            tip: signTitle,
+            cls: !hasData
               ? 'border-[var(--hairline)] bg-[var(--surface)] text-[var(--stone)]'
               : isSigned
                 ? 'border-[#b7eb8f] bg-[#f6ffed] text-[#389e0d]'
-                : 'border-[#ffa39e] bg-[#fff1f0] text-[#cf1322]')
-          }
-        >
-          {!hasData ? (
-            <span className="animate-in fade-in zoom-in duration-200 text-[10px]">?</span>
-          ) : isSigned ? (
-            <Check className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
-          ) : (
-            <X className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
-          )}
-        </div>
+                : 'border-[#ffa39e] bg-[#fff1f0] text-[#cf1322]',
+            children: !hasData ? (
+              <span className="animate-in fade-in zoom-in text-[10px] duration-200">?</span>
+            ) : isSigned ? (
+              <Check className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
+            ) : (
+              <X className="size-3 animate-in fade-in zoom-in duration-200" strokeWidth={2.5} />
+            )
+          })}
+          {row.browser.running
+            ? dot({
+                key: 'browser',
+                tip: `Trình duyệt đang mở${row.profile.cdpPort ? ` (CDP ${row.profile.cdpPort})` : ''}`,
+                cls: 'border-[#91caff] bg-[#e6f4ff] text-[#0958d9]',
+                children: <MonitorCog className="size-3 animate-in fade-in zoom-in duration-200" />
+              })
+            : null}
+          {row.run.running
+            ? dot({
+                key: 'run',
+                tip: 'Đang chạy automation cho tài khoản này',
+                cls: 'border-[#ffbb96] bg-[#fff2e8] text-[#d4380d] animate-pulse',
+                children: <Loader2 className="size-3 animate-spin" />
+              })
+            : null}
+          {row.needsRefresh
+            ? dot({
+                key: 'stale',
+                tip: 'Dữ liệu là của hôm qua — nên cập nhật trạng thái',
+                cls: 'border-[#ffe58f] bg-[#fffbe6] text-[#d48806]',
+                children: <Clock className="size-3 animate-in fade-in zoom-in duration-200" />
+              })
+            : null}
+        </>
+      ) : // Chỉ có 1 badge: giữ dạng chữ cho rõ nghĩa
+      !c ? (
+        <Badge variant="outline" className="whitespace-nowrap transition-all duration-200">
+          chưa có dữ liệu
+        </Badge>
+      ) : c.signedIn ? (
+        <Badge variant="success" className="whitespace-nowrap transition-all duration-200">
+          đã đăng nhập
+        </Badge>
       ) : (
-        // Bình thường: hiển thị badge đầy đủ
-        !c ? (
-          <Badge variant="outline" className="whitespace-nowrap transition-all duration-200">
-            chưa có dữ liệu
-          </Badge>
-        ) : c.signedIn ? (
-          <Badge variant="success" className="whitespace-nowrap transition-all duration-200">
-            đã đăng nhập
-          </Badge>
-        ) : (
-          <Badge variant="destructive" className="whitespace-nowrap transition-all duration-200">
-            chưa đăng nhập
-          </Badge>
-        )
+        <Badge variant="destructive" className="whitespace-nowrap transition-all duration-200">
+          chưa đăng nhập
+        </Badge>
       )}
-
-      {row.browser.running ? (
-        <Badge variant="beta" className="whitespace-nowrap shrink-0">
-          browser mở
-        </Badge>
-      ) : null}
-      {row.run.running ? (
-        <Badge variant="coral" className="whitespace-nowrap shrink-0 animate-pulse">
-          đang chạy
-        </Badge>
-      ) : null}
-      {row.needsRefresh ? (
-        <Badge variant="warning" className="whitespace-nowrap shrink-0">
-          hôm qua
-        </Badge>
-      ) : null}
     </div>
   )
 }
