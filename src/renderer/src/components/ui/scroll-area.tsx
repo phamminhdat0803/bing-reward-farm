@@ -40,16 +40,18 @@ function ScrollBar({
       data-slot="scroll-area-scrollbar"
       orientation={orientation}
       className={cn(
-        "flex touch-none select-none p-px transition-colors",
-        orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent",
-        orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent",
+        // Khong ke border (border-l cu lam vien xau o mep phai); chi la thanh mong,
+        // thumb inset 2px de khong dinh vao vien khung.
+        "flex touch-none select-none p-[2px] transition-opacity duration-150 data-[state=hidden]:opacity-0",
+        orientation === "vertical" && "h-full w-[11px]",
+        orientation === "horizontal" && "h-[11px] flex-col",
         className
       )}
       {...props}
     >
       <ScrollAreaPrimitive.ScrollAreaThumb
         data-slot="scroll-area-thumb"
-        className="relative flex-1 rounded-full bg-[var(--hairline)] transition-colors hover:bg-[var(--stone)]"
+        className="relative flex-1 rounded-full bg-[var(--muted-ink)]/25 transition-colors hover:bg-[var(--muted-ink)]/45"
       />
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
   )

@@ -66,9 +66,9 @@ export function AssignProxyDialog({
         onOpenChange(v)
       }}
     >
-      <DialogContent className="z-[70] flex! h-[70vh] max-h-[70vh] flex-col overflow-hidden sm:max-w-[560px]">
-        <DialogHeader>
-          <DialogTitle className="text-[20px] leading-tight">Gán tài khoản vào proxy</DialogTitle>
+      <DialogContent className="z-[70] flex! h-[70vh] max-h-[70vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]">
+        <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
+          <DialogTitle className="text-[19px] leading-tight">Gán tài khoản vào proxy</DialogTitle>
           <DialogDescription className="text-[12.5px]">
             {proxy ? (
               <>
@@ -80,7 +80,7 @@ export function AssignProxyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative">
+        <div className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-2.5">
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -89,8 +89,8 @@ export function AssignProxyDialog({
           />
         </div>
 
-        <ScrollArea className="min-h-0 flex-1 rounded-[10px] border border-[var(--hairline)]">
-          <div className="p-1">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-2">
             {list.length === 0 ? (
               <div className="px-2.5 py-6 text-center text-[12.5px] text-[var(--steel)]">
                 Không có tài khoản nào khớp.
@@ -130,7 +130,7 @@ export function AssignProxyDialog({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="shrink-0">
+        <DialogFooter className="shrink-0 gap-2 border-t border-[var(--hairline-soft)] px-5 py-3">
           <span className="mr-auto text-[12px] text-[var(--stone)]">Đã chọn {current.length} tài khoản</span>
           <Button variant="tertiary" onClick={() => onOpenChange(false)}>
             Huỷ

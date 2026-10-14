@@ -87,15 +87,15 @@ export function ProxyPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="z-[70] flex max-h-[80vh] flex-col overflow-hidden sm:max-w-[720px]">
-        <DialogHeader>
-          <DialogTitle className="text-[20px] leading-tight">Chọn proxy</DialogTitle>
+      <DialogContent className="z-[70] flex! h-[80vh] max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
+        <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
+          <DialogTitle className="text-[19px] leading-tight">Chọn proxy</DialogTitle>
           <DialogDescription className="text-[12.5px]">
             Tìm theo tên, chuỗi proxy, IP, quốc gia. Cột phải cho biết proxy đang được tài khoản nào dùng.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--hairline-soft)] px-5 py-2.5">
           <div className="relative min-w-[220px] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--stone)]" />
             <Input
@@ -131,8 +131,8 @@ export function ProxyPickerDialog({
           </Button>
         </div>
 
-        <ScrollArea className="min-h-0 flex-1 rounded-[10px] border border-[var(--hairline)]">
-          <div className="p-1">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-2">
             <button
               type="button"
               onClick={() => {
@@ -211,7 +211,7 @@ export function ProxyPickerDialog({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="shrink-0">
+        <DialogFooter className="shrink-0 gap-2 border-t border-[var(--hairline-soft)] px-5 py-3">
           <span className="mr-auto text-[12px] text-[var(--stone)]">{list.length} proxy</span>
           <Button variant="tertiary" onClick={() => onOpenChange(false)}>
             Đóng

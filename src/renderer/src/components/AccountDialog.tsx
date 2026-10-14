@@ -156,10 +156,11 @@ export function AccountDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* flex! : DialogContent cua shadcn co san `grid`, phai ep flex de khoi cuon co chieu cao */}
-      <DialogContent className="z-[60] flex! h-[86vh] max-h-[86vh] flex-col overflow-hidden sm:max-w-[620px]">
-        <DialogHeader>
-          <DialogTitle className="text-[20px] leading-tight">
+      {/* p-0 gap-0: padding dat o header/footer/content — ScrollArea sat mep dialog nen thanh cuon
+          nam dung vien phai, khong bi le vao trong. flex! vi DialogContent cua shadcn co san `grid`. */}
+      <DialogContent className="z-[60] flex! h-[86vh] max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]">
+        <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
+          <DialogTitle className="text-[19px] leading-tight">
             {initial ? 'Sửa tài khoản' : 'Thêm tài khoản'}
           </DialogTitle>
           <DialogDescription className="text-[12.5px]">
@@ -168,7 +169,7 @@ export function AccountDialog({
         </DialogHeader>
 
         <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-3 pr-2 pb-1">
+          <div className="space-y-4 px-5 py-4">
 
           {/* ---------- CƠ BẢN ---------- */}
           <div className="space-y-3">
@@ -430,7 +431,7 @@ export function AccountDialog({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="shrink-0 pt-1">
+        <DialogFooter className="shrink-0 gap-2 border-t border-[var(--hairline-soft)] px-5 py-3">
           <Button variant="tertiary" onClick={() => onOpenChange(false)}>
             Huỷ
           </Button>
