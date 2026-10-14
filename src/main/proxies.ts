@@ -39,6 +39,56 @@ function slug(label: string): string {
 }
 
 /** Trang thai suc khoe da do, tra theo proxyId (cho UI hien proxy dang dung + IP ra). */
+let healthTimer: NodeJS.Timeout | null = null
+
+/**
+ * Health checker dinh ky trong main: do lai suc khoe cac proxy trong kho.
+ * - Chu ky 45s (trong khoang 30-60s), toi da 4 proxy do song song.
+ * - checkProxyHealth da tu ton trong cooldown 5 phut => proxy vua fail khong bi do lai lien tuc
+ *   (tranh ping-pong A<->B va tranh bi chinh proxy/Chen rate-limit).
+ */
+export function startHealthLoop(opts: { everyMs?: number; concurrency?: number } = {}): void {
+  if (healthTimer) return
+  const everyMs = opts.everyMs ?? 45000
+  const conc = Math.max(1, opts.concurrency ?? 4)
+  let cursor = 0
+  const tick = async (): Promise<void> => {
+    const all = listProxies().map((p) => p.url)
+    if (all.length === 0) return
+    // Chi do toi da 12 proxy moi chu ky va bo qua proxy dang cooldown -> khong bao gio do 251 proxy cung luc
+    const batch: string[] = []
+    for (let k = 0; k < all.length && batch.length < 12; k += 1) {
+      const url = all[(cursor + k) % all.length]
+      if ((cooldownUntil[url] ?? 0) <= Date.now()) batch.push(url)
+    }
+    cursor = (cursor + Math.max(1, batch.length)) % all.length
+    if (batch.length === 0) {
+      console.log('[health] tat ca proxy dang cooldown, bo qua chu ky nay')
+      return
+    }
+    let i = 0
+    const worker = async (): Promise<void> => {
+      while (i < batch.length) {
+        const idx = i
+        i += 1
+        // eslint-disable-next-line no-await-in-loop
+        await checkProxyHealth(batch[idx]).catch(() => {})
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(conc, batch.length) }, () => worker())).catch(() => {})
+    const live = batch.filter((u) => healthCache[u]?.status === 'live').length
+    console.log(`[health] da do ${batch.length}/${all.length} proxy (song: ${live}, chu ky ${everyMs}ms)`)
+  }
+  healthTimer = setInterval(() => void tick(), everyMs)
+  healthTimer.unref?.()
+  void tick()
+}
+
+export function stopHealthLoop(): void {
+  if (healthTimer) clearInterval(healthTimer)
+  healthTimer = null
+}
+
 export function getHealthById(): Record<string, ProxyHealth> {
   const res: Record<string, ProxyHealth> = {}
   for (const p of listProxies()) {

@@ -79,7 +79,15 @@ export default function App(): React.JSX.Element {
       () => void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {}),
       30000
     )
-    const offLog = window.api.onLog((line) => setLogs((prev) => [...prev.slice(-400), line]))
+    const offLog = window.api.onLog((line) => {
+      setLogs((prev) => [...prev.slice(-400), line])
+      // Canh bao noi bat khi profile bi dung vi toan bo proxy deu chet (khong fallback DIRECT)
+      if (line.msg && line.msg.includes('DUNG profile')) {
+        toast.error('Đã dừng tài khoản: toàn bộ proxy đều chết', {
+          description: 'Không chạy bằng IP thật (no-direct đang BẬT). Kiểm tra proxy hoặc thêm proxy dự phòng.'
+        })
+      }
+    })
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
     const offRun = window.api.onRunStatus(() => void reload())

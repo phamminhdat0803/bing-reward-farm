@@ -8,7 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -440,6 +440,8 @@ function createWindow(): void {
 if (process.env.BRF_DEBUG) {
   app.commandLine.appendSwitch('remote-debugging-port', String(process.env.BRF_DEBUG))
 }
+
+startHealthLoop({ everyMs: 45000, concurrency: 4 })
 
 app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardfarm')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
