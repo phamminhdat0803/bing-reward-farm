@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Settings2, MonitorCog } from 'lucide-react'
+import { Settings2, MonitorCog, ShieldOff } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
@@ -261,6 +261,23 @@ export default function App(): React.JSX.Element {
               onCheckedChange={async (v) => {
                 const next = await window.api.setSettings({ autoRefreshOnNewDay: v })
                 setSettingsState(next)
+              }}
+            />
+          </div>
+
+          {/* No-direct: het proxy thi dung profile, khong roi ve IP that (mac dinh BAT) */}
+          <div
+            className="hidden items-center gap-2 rounded-full border border-[var(--hairline)] px-3 py-1.5 lg:flex"
+            title="BẬT: khi toàn bộ proxy đều chết thì DỪNG tài khoản, không chạy bằng IP thật của máy"
+          >
+            <ShieldOff className="size-3.5 text-[var(--steel)]" />
+            <span className="text-[13px]">Không fallback DIRECT</span>
+            <Switch
+              checked={settings?.noDirectFallback !== false}
+              onCheckedChange={async (v) => {
+                const next = await window.api.setSettings({ noDirectFallback: v })
+                setSettingsState(next)
+                if (!v) toast.warning('Đã TẮT no-direct: hết proxy sẽ chạy bằng IP thật của máy.')
               }}
             />
           </div>
