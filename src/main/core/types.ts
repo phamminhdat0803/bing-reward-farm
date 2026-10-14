@@ -21,6 +21,8 @@ export type CoreConfig = {
     executablePath: string | null
     cdpPort?: number | null
     proxy?: string | null
+    /** Chuoi proxy theo thu tu uu tien (chinh + du phong) -> --proxy-server="p1,p2" */
+    proxyChain?: string[]
     slowMoMs: number
   }
   search: {

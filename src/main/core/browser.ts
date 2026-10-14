@@ -120,6 +120,13 @@ function baseOptions(cfg: CoreConfig, mobile: boolean): Record<string, unknown> 
     else opts.channel = 'msedge'
   }
 
+  // Chain: tu 2 proxy tro len -> dua vao --proxy-server="p1,p2" (Chromium tu fallback,
+  // da do tren Edge 155). Playwright chi nhan 1 proxy nen khong dung opts.proxy khi co chain.
+  const chain = (cfg.browser.proxyChain ?? []).filter(Boolean)
+  if (chain.length > 1 && opts.args && !chain.some((p) => /@/.test(p))) {
+    opts.args.push(`--proxy-server=${chain.join(',')}`)
+    opts.proxy = undefined
+  }
   const parsed = parseProxy(cfg.browser.proxy)
   if (parsed) {
     opts.proxy = {

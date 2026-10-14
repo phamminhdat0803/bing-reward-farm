@@ -82,6 +82,35 @@ export function addProxyBulk(lines: string[]): { added: ProxyItem[]; skipped: nu
   return { added, skipped }
 }
 
+/** Danh sach proxy theo thu tu uu tien cua 1 profile (chinh + du phong), da chuan hoa scheme. */
+export function resolveProxyChain(profile: {
+  proxyId?: string | null
+  proxy?: string | null
+  proxyFallbacks?: string[] | null
+}): string[] {
+  const out: string[] = []
+  const main = resolveProxyUrl(profile)
+  if (main) out.push(main)
+  for (const p of profile.proxyFallbacks ?? []) {
+    const v = String(p || '').trim()
+    if (v && !out.includes(v)) out.push(v)
+  }
+  return out
+}
+
+/** Preflight: tra ve cac proxy CON SONG trong chain (giu nguyen thu tu). */
+export async function preflightChain(chain: string[]): Promise<{ live: string[]; dead: { proxy: string; error?: string }[] }> {
+  const live: string[] = []
+  const dead: { proxy: string; error?: string }[] = []
+  for (const p of chain) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await testProxy(p)
+    if (r.ok) live.push(p)
+    else dead.push({ proxy: p, error: r.error })
+  }
+  return { live, dead }
+}
+
 export function addProxy(input: Partial<ProxyItem>): ProxyItem {
   const st = load()
   const label = (input.label || '').trim() || `Proxy ${st.items.length + 1}`

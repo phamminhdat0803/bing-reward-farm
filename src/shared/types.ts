@@ -18,6 +18,8 @@ export type Profile = {
   proxy?: string | null
   /** Id proxy trong kho (tab "Proxy") — uu tien hon `proxy` */
   proxyId?: string | null
+  /** Proxy du phong theo thu tu (sau proxy chinh) */
+  proxyFallbacks?: string[] | null
   note?: string
   createdAt: string
   lastRunAt: string | null
