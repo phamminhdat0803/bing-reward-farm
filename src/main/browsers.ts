@@ -1,5 +1,6 @@
 // Quan ly tien trinh trinh duyet cho tung profile (mo bang CDP de vua xem vua automation).
 import { spawn } from 'node:child_process'
+import net from 'node:net'
 import { chromium } from 'playwright-core'
 import { EARN_URL } from './core/rewards'
 import { findBrowserExe, openCdpBrowser, parseProxy, waitForCdp } from './core/browser'
@@ -18,6 +19,35 @@ export type BrowserState = {
 }
 
 const running = new Map<string, BrowserState>()
+
+/**
+ * Cong con MO khong? Kiem tra kieu TCP connect (nhanh, ~ms) thay vi HTTP /json/version:
+ * vua mo trinh duyet thi endpoint HTTP co the ban/treo => neu dung HTTP de ket luan
+ * "da dong" se bao sai (bang hien 'chua mo' ngay sau khi mo).
+ */
+export function portOpen(port: number, timeoutMs = 1200): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!port || port <= 0) {
+      resolve(false)
+      return
+    }
+    const sock = net.connect({ host: '127.0.0.1', port })
+    let settled = false
+    const done = (v: boolean): void => {
+      if (settled) return
+      settled = true
+      sock.destroy()
+      resolve(v)
+    }
+    sock.setTimeout(timeoutMs)
+    sock.once('connect', () => done(true))
+    sock.once('timeout', () => done(false))
+    sock.once('error', () => done(false))
+  })
+}
+
+/** So lan lien tiep khong thay cong CDP -> tranh ket luan som do 1 lan ban. */
+const closeStrikes = new Map<string, number>()
 
 export async function cdpAlive(port: number): Promise<boolean> {
   try {
@@ -55,13 +85,19 @@ function pidAlive(pid: number | null): boolean {
 export async function browserState(profile: Profile): Promise<BrowserState> {
   const mem = running.get(profile.id)
   if (mem?.running) {
-    // QUAN TRONG: chi kiem tra pid la SAI — nguoi dung bam X dong cua so nhung Edge van giu
-    // tien trinh nen (background mode) => app tuong browser con mo.
-    // Cong CDP tat di moi la bang chung that rang cua so da dong.
+    // Cong CDP (kieu TCP) la bang chung that: nguoi dung bam X thi cong tat.
+    // Nhung KHONG ket luan ngay sau 1 lan fail: vua mo browser thi endpoint con ban
+    // => phai fail 2 lan lien tiep moi coi la da dong (tranh bao sai 'chua mo').
     const port = mem.port ?? profile.cdpPort ?? 0
-    if (port > 0 && (await cdpAlive(port))) return { ...mem, running: true }
-    if (pidAlive(mem.pid) && port > 0 && (await cdpAlive(port))) return { ...mem, running: true }
+    if (await portOpen(port)) {
+      closeStrikes.delete(profile.id)
+      return { ...mem, running: true }
+    }
+    const strikes = (closeStrikes.get(profile.id) ?? 0) + 1
+    closeStrikes.set(profile.id, strikes)
+    if (strikes < 2 && pidAlive(mem.pid)) return { ...mem, running: true }
     running.delete(profile.id)
+    closeStrikes.delete(profile.id)
     return {
       running: false,
       pid: null,
@@ -156,12 +192,11 @@ export async function closeBrowser(profileId: string): Promise<{ ok: boolean }> 
 export async function verifyRunningBrowsers(profiles: Profile[]): Promise<{ id: string; name: string }[]> {
   const closed: { id: string; name: string }[] = []
   for (const p of profiles) {
-    const mem = running.get(p.id)
-    if (!mem?.running) continue
-    const port = mem.port ?? p.cdpPort ?? 0
-    if (port > 0 && (await cdpAlive(port))) continue
-    running.delete(p.id)
-    closed.push({ id: p.id, name: p.name })
+    if (!running.get(p.id)?.running) continue
+    // Dung chung browserState de huong dung logic (portOpen + 2 lan fail lien tiep)
+    // eslint-disable-next-line no-await-in-loop
+    const st = await browserState(p)
+    if (!st.running) closed.push({ id: p.id, name: p.name })
   }
   return closed
 }
