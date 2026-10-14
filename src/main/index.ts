@@ -394,21 +394,33 @@ function createWindow(): void {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(() => {
         const list = loadStore().profiles
-        const wantId = process.env.BRF_AUTORUN_PROFILE
-        const target = wantId ? list.find((p) => p.id === wantId) : list[0]
-        if (!target) return
+        // BRF_AUTORUN_PROFILE co the la danh sach: "default,thap-vu" -> chay song song de kiem thu UI
+        const wantIds = String(process.env.BRF_AUTORUN_PROFILE ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+        const targets = (
+          wantIds.length ? wantIds.map((id) => list.find((p) => p.id === id)) : [list[0]]
+        ).filter((p): p is (typeof list)[number] => Boolean(p))
+        if (targets.length === 0) return
         const kinds = String(process.env.BRF_AUTORUN)
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
-        void startRun(target, kinds, {
+        const hooks = (): {
+          onLine: (line: LogLine) => void
+          onSnapshot: (snap: never) => void
+          onProgress: (pr: never) => void
+        } => ({
           onLine: (line: LogLine) => broadcast('log:line', line),
-          onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+          onStatusChange: (profileId: string, running: boolean) => broadcast('run:status', { profileId, running }),
+          onSnapshot: (snap) => broadcast('rewards:snapshot', snap as never),
           onProgress: (pr) => {
-            broadcast('run:progress', pr)
+            broadcast('run:progress', pr as never)
             if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
           }
         })
+        for (const target of targets) void startRun(target, kinds, hooks() as never)
       }, 8000)
     })
   }

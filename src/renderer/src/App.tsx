@@ -317,26 +317,38 @@ export default function App(): React.JSX.Element {
                 const running = rows.filter((r) => r.run.running)
                 if (running.length === 0) return null
                 return (
-                  <div className="space-y-1.5 rounded-[12px] border border-[var(--hairline)] bg-[var(--surface)] px-3 py-2">
+                  <div className="mt-2 grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
                     {running.map((r) => {
                       const pr = progress[r.id]
                       const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
                       return (
-                        <div key={r.id} className="flex items-center gap-3">
-                          <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
-                          <span className="w-[150px] shrink-0 truncate text-[13px] font-medium">{r.profile.name}</span>
-                          <span className="min-w-[190px] shrink-0 text-[12.5px] text-[var(--steel)]">
-                            {pr ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search` : 'đang chuẩn bị…'}
-                          </span>
-                          <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">
-                            <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${p}%` }} />
+                        <div
+                          key={r.id}
+                          className="rounded-[12px] border border-[var(--hairline)] bg-[var(--surface)] px-3 py-2.5"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{r.profile.name}</span>
+                            <span className="mm-tabular shrink-0 text-[12.5px] text-[var(--steel)]">
+                              {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
+                              {pr && pr.gained > 0 ? (
+                                <span className="ml-1.5 font-semibold text-[var(--success-text)]">+{pr.gained}</span>
+                              ) : null}
+                            </span>
                           </div>
-                          <span className="mm-tabular shrink-0 text-[12.5px] text-[var(--steel)]">
-                            {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
-                            {pr && pr.gained > 0 ? (
-                              <span className="ml-1.5 font-semibold text-[var(--success-text)]">+{pr.gained}</span>
-                            ) : null}
-                          </span>
+                          <div className="mt-2 flex items-center gap-2.5">
+                            <span className="w-[130px] shrink-0 text-[12.5px] text-[var(--steel)]">
+                              {pr
+                                ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search`
+                                : 'đang chuẩn bị…'}
+                            </span>
+                            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">
+                              <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${p}%` }} />
+                            </div>
+                            <span className="mm-tabular w-9 shrink-0 text-right text-[11.5px] text-[var(--stone)]">
+                              {p}%
+                            </span>
+                          </div>
                         </div>
                       )
                     })}
