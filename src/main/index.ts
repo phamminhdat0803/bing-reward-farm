@@ -106,6 +106,24 @@ function createWindow(): void {
             const value = await wc.executeJavaScript(`document.querySelector('#a-name')?.value ?? '(khong co input)'`)
             console.log(`[test-account] gia tri input sau khi go: ${JSON.stringify(value)}`)
             console.log(`[test-account] KET QUA: ${value === 'Acc003' ? 'GO DUOC' : 'KHONG GO DUOC'}`)
+
+            // Do kha nang cuon cua dialog (ScrollArea trong DialogContent)
+            const scroll = await wc.executeJavaScript(`(() => {
+              const dlg = document.querySelector('[role="dialog"]')
+              const vp = dlg && dlg.querySelector('[data-slot="scroll-area-viewport"]')
+              if (!dlg) return { error: 'khong thay dialog' }
+              const bar = dlg.querySelector('[data-slot="scroll-area-scrollbar"]')
+              return {
+                dialogH: Math.round(dlg.getBoundingClientRect().height),
+                dialogOverflow: getComputedStyle(dlg).overflow,
+                coViewport: !!vp,
+                viewportH: vp ? Math.round(vp.getBoundingClientRect().height) : 0,
+                noiDungCao: vp ? vp.scrollHeight : 0,
+                cuonDuoc: vp ? vp.scrollHeight > vp.clientHeight + 4 : false,
+                thanhCuon: bar ? bar.getAttribute('data-state') : null
+              }
+            })()`)
+            console.log(`[test-account] cuon: ${JSON.stringify(scroll)}`)
           } catch (e) {
             console.error('[test-account] loi', e)
           }

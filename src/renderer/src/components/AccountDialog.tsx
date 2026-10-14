@@ -156,7 +156,8 @@ export function AccountDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="z-[60] flex max-h-[86vh] flex-col overflow-hidden sm:max-w-[620px]">
+      {/* flex! : DialogContent cua shadcn co san `grid`, phai ep flex de khoi cuon co chieu cao */}
+      <DialogContent className="z-[60] flex! h-[86vh] max-h-[86vh] flex-col overflow-hidden sm:max-w-[620px]">
         <DialogHeader>
           <DialogTitle className="text-[20px] leading-tight">
             {initial ? 'Sửa tài khoản' : 'Thêm tài khoản'}

@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  UserPlus,
   Wifi,
   X
 } from 'lucide-react'
@@ -36,6 +37,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import { ProxyDialog } from '@renderer/components/ProxyDialog'
 import { BulkProxyDialog } from '@renderer/components/BulkProxyDialog'
+import { AssignProxyDialog } from '@renderer/components/AssignProxyDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
 import { timeAgo } from '@renderer/lib/utils'
 import type { ProxyItem, RowState } from '@shared/types'
@@ -86,6 +88,8 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
   const [items, setItems] = useState<ProxyItem[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignTarget, setAssignTarget] = useState<ProxyItem | null>(null)
   const [bulkOpen, setBulkOpen] = useState(false)
   const [editing, setEditing] = useState<ProxyItem | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -253,6 +257,27 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
   }
 
   // Xoá 1 proxy
+  // Gán proxy này cho các tài khoản được chọn trong AssignProxyDialog
+  const assignTo = async (ids: string[]): Promise<void> => {
+    const proxy = assignTarget
+    if (!proxy) return
+    const all = rows
+    for (const r of all) {
+      const shouldUse = ids.includes(r.id)
+      const isUsing = r.profile.proxyId === proxy.id
+      if (shouldUse && !isUsing) {
+        // eslint-disable-next-line no-await-in-loop
+        await window.api.updateProfile(r.id, { proxyId: proxy.id })
+      } else if (!shouldUse && isUsing) {
+        // eslint-disable-next-line no-await-in-loop
+        await window.api.updateProfile(r.id, { proxyId: null })
+      }
+    }
+    toast.success(`Đã gán proxy "${proxy.label}" cho ${ids.length} tài khoản.`)
+    await reload()
+    onChanged()
+  }
+
   const deleteOne = (p: ProxyItem): void => {
     const users = usersOf(p.id)
     if (users.length) {
@@ -651,6 +676,17 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                           <Button
                             size="icon-sm"
                             variant="tertiary"
+                            title="Gán tài khoản vào proxy này"
+                            onClick={() => {
+                              setAssignTarget(p)
+                              setAssignOpen(true)
+                            }}
+                          >
+                            <UserPlus className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="tertiary"
                             title="Kiểm tra proxy này"
                             disabled={busy === `test:${p.id}`}
                             onClick={() => void testOne(p.id)}
@@ -710,6 +746,16 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            setAssignTarget(p)
+                            setAssignOpen(true)
+                          }}
+                        >
+                          <UserPlus className="size-3.5" /> Gán tài khoản vào proxy này
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
                           className="gap-2 text-[var(--error)]"
                           onClick={() => deleteOne(p)}
                         >
@@ -765,6 +811,15 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
           await reload()
           onChanged()
         }}
+      />
+
+      <AssignProxyDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        proxy={assignTarget}
+        rows={rows}
+        proxyLabels={Object.fromEntries(items.map((p) => [p.id, p.label]))}
+        onSave={assignTo}
       />
 
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
