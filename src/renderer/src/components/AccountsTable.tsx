@@ -406,13 +406,16 @@ export function AccountsTable(p: Props): React.JSX.Element {
                         {row.browser.running ? <X className="size-3.5" /> : <Chrome className="size-3.5" />}
                       </Button>
                       {(() => {
-                        const isRefreshing = p.refreshingId === row.id || p.busy === `refresh:${row.id}`
+                        const isRefreshing =
+                          p.refreshingId === row.id ||
+                          p.busy === `refresh:${row.id}` ||
+                          (p.busy === 'refresh' && p.refreshingId === row.id)
                         return (
                           <Button
                             size="icon-sm"
                             variant="tertiary"
                             title="Cập nhật trạng thái (mở trình duyệt đọc điểm)"
-                            disabled={isRefreshing}
+                            disabled={isRefreshing || p.busy === 'refresh'}
                             onClick={() => p.onRefresh(row.id)}
                           >
                             <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />

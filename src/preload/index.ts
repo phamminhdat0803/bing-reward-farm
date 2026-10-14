@@ -81,6 +81,11 @@ const api = {
     ipcRenderer.on('refresh:progress', handler)
     return () => ipcRenderer.removeListener('refresh:progress', handler)
   },
+  onRefreshDone: (cb: () => void): (() => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('refresh:done', handler)
+    return () => ipcRenderer.removeListener('refresh:done', handler)
+  },
 
   startRun: (id: string, kinds: string[]): Promise<{ ok: boolean; runId?: string; error?: string }> =>
     ipcRenderer.invoke('run:start', { id, kinds }),

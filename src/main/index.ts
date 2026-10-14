@@ -15,7 +15,7 @@ import type { RowState } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 
-function broadcast(channel: string, payload: unknown): void {
+function broadcast(channel: string, payload?: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(channel, payload)
   }
@@ -388,11 +388,15 @@ if (process.env.BRF_TEST_ALL) {
         void (async () => {
           const profiles = loadStore().profiles
           console.log(`[autorefresh] cap nhat ${profiles.length} profile`)
-          await refreshMany(profiles, {
-            onLine: (line: LogLine) => broadcast('log:line', line),
-            onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-            onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
-          })
+          try {
+            await refreshMany(profiles, {
+              onLine: (line: LogLine) => broadcast('log:line', line),
+              onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+              onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
+            })
+          } finally {
+            broadcast('refresh:done')
+          }
         })()
       }, Number(process.env.BRF_REFRESH_DELAY ?? 6000))
     })
@@ -642,13 +646,17 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   ipcMain.handle('rewards:refresh', async (_e, ids) => {
     const idList: string[] = Array.isArray(ids) && ids.length ? ids : loadStore().profiles.map((p) => p.id)
     const profiles = idList.map((id) => getProfile(id)).filter((p): p is NonNullable<typeof p> => !!p)
-    const res = await refreshMany(profiles, {
-      onLine: (line: LogLine) => broadcast('log:line', line),
-      onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-      onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId }),
-      gapMs: getSettings().refreshGapMs
-    })
-    return { ok: true, count: res.length }
+    try {
+      const res = await refreshMany(profiles, {
+        onLine: (line: LogLine) => broadcast('log:line', line),
+        onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+        onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId }),
+        gapMs: getSettings().refreshGapMs
+      })
+      return { ok: true, count: res.length }
+    } finally {
+      broadcast('refresh:done')
+    }
   })
 
   ipcMain.handle('settings:get', () => getSettings())
@@ -721,11 +729,15 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
         level: 'info',
         msg: `Sang ngay moi: dang mo trinh duyet lay point cho ${stale.length} tai khoan`
       })
-      await refreshMany(stale, {
-        onLine: (line) => broadcast('log:line', line),
-        onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-        onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
-      })
+      try {
+        await refreshMany(stale, {
+          onLine: (line) => broadcast('log:line', line),
+          onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+          onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
+        })
+      } finally {
+        broadcast('refresh:done')
+      }
     }
     setTimeout(() => void check(), 5000)
     setInterval(() => void check(), 5 * 60 * 1000)

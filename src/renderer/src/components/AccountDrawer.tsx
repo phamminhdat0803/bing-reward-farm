@@ -36,6 +36,7 @@ type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
   busy: string | null
+  refreshingId?: string | null
   logs: LogLine[]
   onRefresh: (id: string) => void
   onOpenBrowser: (id: string) => void
@@ -187,14 +188,22 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                 >
                   <Chrome className="size-3.5" /> {row.browser.running ? 'Đóng trình duyệt' : 'Mở trình duyệt'}
                 </Button>
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={p.busy === `refresh:${row.id}`}
-                  onClick={() => p.onRefresh(row.id)}
-                >
-                  <RefreshCw className={p.busy === `refresh:${row.id}` ? 'size-3.5 animate-spin' : 'size-3.5'} /> Cập nhật
-                </Button>
+                {(() => {
+                  const isRefreshing =
+                    p.refreshingId === row.id ||
+                    p.busy === `refresh:${row.id}` ||
+                    (p.busy === 'refresh' && p.refreshingId === row.id)
+                  return (
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={isRefreshing}
+                      onClick={() => p.onRefresh(row.id)}
+                    >
+                      <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} /> Cập nhật
+                    </Button>
+                  )
+                })()}
                 <Button size="sm" variant="tertiary" className="gap-1.5" onClick={() => p.onLoginWindow(row.id)}>
                   <LogIn className="size-3.5" /> Đăng nhập
                 </Button>

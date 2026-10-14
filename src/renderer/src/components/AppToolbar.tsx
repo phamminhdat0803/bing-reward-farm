@@ -57,6 +57,7 @@ function Divider(): React.JSX.Element {
 export function AppToolbar(p: ToolbarProps): React.JSX.Element {
   const none = p.selectedCount === 0
   const many = p.selectedCount > 1
+  const isRefreshing = !!p.refreshing && (p.refreshing.total === 0 || p.refreshing.done < p.refreshing.total)
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
@@ -71,13 +72,13 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
       <Button
         size="sm"
         variant="tertiary"
-        disabled={none || !!p.refreshing}
+        disabled={none || isRefreshing}
         onClick={p.onRefreshPoints}
         className="gap-1.5"
         title="Mở trình duyệt để đọc điểm + trần ngày cho các tài khoản đã chọn"
       >
-        <RefreshCw className={p.refreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
-        {p.refreshing ? `Đang cập nhật ${p.refreshing.done}/${p.refreshing.total}` : 'Cập nhật trạng thái'}
+        <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
+        {isRefreshing ? `Đang cập nhật ${p.refreshing?.done ?? 0}/${p.refreshing?.total ?? 0}` : 'Cập nhật trạng thái'}
       </Button>
 
       <Divider />

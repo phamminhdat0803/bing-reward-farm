@@ -833,6 +833,7 @@ export async function refreshMany(
 ): Promise<CachedSnapshot[]> {
   const out: CachedSnapshot[] = []
   for (const [i, p] of profiles.entries()) {
+    hooks.onProgress?.(i, profiles.length, p.id)
     try {
       out.push(await refresh(p, hooks))
     } catch (e) {

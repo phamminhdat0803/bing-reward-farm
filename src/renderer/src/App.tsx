@@ -109,7 +109,22 @@ export default function App(): React.JSX.Element {
       }
     })
     const offSnap = window.api.onSnapshot(() => void reload())
-    const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
+    const offProg = window.api.onRefreshProgress((p: RefreshProgress) => {
+      if (p.done >= p.total) {
+        setRefreshing({ done: p.done, total: p.total })
+        setTimeout(() => {
+          setRefreshing((cur) => (cur && cur.done >= cur.total ? null : cur))
+          setRefreshingId(null)
+        }, 500)
+      } else {
+        setRefreshing({ done: p.done, total: p.total })
+        if (p.profileId) setRefreshingId(p.profileId)
+      }
+    })
+    const offRefreshDone = window.api.onRefreshDone?.(() => {
+      setRefreshing(null)
+      setRefreshingId(null)
+    })
     const offRun = window.api.onRunStatus((s) => {
       // Xoa tien do cu cua acc khi luot chay bat dau/ket thuc, tranh hien nham
       // (vd chi chay "Kiem them" ma van con so 'Desktop 9/9' cua luot truoc)
@@ -139,6 +154,7 @@ export default function App(): React.JSX.Element {
       offLog()
       offSnap()
       offProg()
+      offRefreshDone?.()
       offRun()
       offRunProg()
       offBrowser?.()
@@ -175,9 +191,13 @@ export default function App(): React.JSX.Element {
         await window.api.refreshPoints(ids)
         await reload()
         toast.success('Đã cập nhật số liệu mới.')
+      } catch (e) {
+        toast.error(`Cập nhật thất bại: ${String((e as Error).message).slice(0, 200)}`)
       } finally {
-        setRefreshing(null)
-        setRefreshingId(null)
+        setTimeout(() => {
+          setRefreshing(null)
+          setRefreshingId(null)
+        }, 300)
       }
     })
 
@@ -616,6 +636,7 @@ export default function App(): React.JSX.Element {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         busy={busy}
+        refreshingId={refreshingId}
         logs={logs.filter((l) => !l.profileId || l.profileId === activeRow?.id)}
         onRefresh={(id) => void refreshPoints([id])}
         onOpenBrowser={(id) => void withBrowser(id, 'open')}
