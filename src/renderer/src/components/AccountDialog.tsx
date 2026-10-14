@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState  } from 'react'
-import { Wifi } from 'lucide-react'
+import { ChevronDown, ChevronUp, Plus, Wifi, X } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -63,6 +63,9 @@ export function AccountDialog({
   const [proxyId, setProxyId] = useState('')
   const [proxyList, setProxyList] = useState<ProxyItem[]>([])
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<'main' | 'fallback'>('main')
+  /** Proxy du phong theo thu tu (sau proxy chinh) */
+  const [proxyFallbacks, setProxyFallbacks] = useState<string[]>([])
   const [testingProxy, setTestingProxy] = useState(false)
   const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null)
   const [browsers, setBrowsers] = useState<DetectedBrowser[]>([])
@@ -87,6 +90,7 @@ export function AccountDialog({
     setNote(initial?.note ?? '')
     setChannel(initial?.channel ?? 'msedge')
     setProxyId(initial?.proxyId ?? '')
+    setProxyFallbacks((initial?.proxyFallbacks ?? []).filter(Boolean))
     setPickerOpen(false)
     setProxyResult(null)
     setHeadless(initial?.headless ?? false)
@@ -157,6 +161,7 @@ export function AccountDialog({
         profileDir: profileDir.trim() || undefined,
         cdpPort: cdpPort ? Number(cdpPort) : undefined,
         proxyId: proxyId || null,
+        proxyFallbacks: proxyFallbacks.length ? proxyFallbacks : null,
         // giu chuoi proxy cu chi khi KHONG gan proxy tu kho
         proxy: proxyId ? null : (initial?.proxy ?? null),
         note: note.trim() || undefined,
@@ -379,7 +384,10 @@ export function AccountDialog({
                   {/* 1 card duy nhat: bam vao mo hop chon proxy (co tim kiem + sap xep) */}
                   <button
                     type="button"
-                    onClick={() => setPickerOpen(true)}
+                    onClick={() => {
+                      setPickerMode('main')
+                      setPickerOpen(true)
+                    }}
                     className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--hairline)] px-3 py-2 text-left transition hover:bg-[var(--surface)]"
                   >
                     <div className="min-w-0">
@@ -408,6 +416,89 @@ export function AccountDialog({
                     </div>
                     <span className="shrink-0 text-[12px] font-medium text-[var(--brand-blue-deep)]">Chọn proxy…</span>
                   </button>
+
+                  {/* Proxy dự phòng: thứ tự từ trên xuống, Chromium thử lần lượt khi proxy trước lỗi */}
+                  <div className="grid gap-1.5 rounded-[10px] border border-[var(--hairline)] px-2.5 py-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-[12.5px] font-semibold">Proxy dự phòng (theo thứ tự)</div>
+                        <div className="mm-micro">
+                          Thử lần lượt: proxy chính → dự phòng 1 → 2… Hết tất cả thì DỪNG, không dùng IP thật.
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="tertiary"
+                        size="sm"
+                        className="h-6 shrink-0 gap-1 px-2 text-[11.5px]"
+                        onClick={() => {
+                          setPickerMode('fallback')
+                          setPickerOpen(true)
+                        }}
+                      >
+                        <Plus className="size-3" /> Thêm
+                      </Button>
+                    </div>
+
+                    {proxyFallbacks.length === 0 ? (
+                      <div className="mm-micro">Chưa có proxy dự phòng.</div>
+                    ) : (
+                      proxyFallbacks.map((url, i) => (
+                        <div key={url + '-' + i} className="flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1">
+                          <span className="mm-tabular w-4 shrink-0 text-[11.5px] text-[var(--stone)]">{i + 1}</span>
+                          <span className="min-w-0 flex-1 truncate text-[12px]" title={url}>
+                            {url}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Lên"
+                            disabled={i === 0}
+                            onClick={() =>
+                              setProxyFallbacks((prev) => {
+                                const n = [...prev]
+                                const tmp = n[i - 1]
+                                n[i - 1] = n[i]
+                                n[i] = tmp
+                                return n
+                              })
+                            }
+                          >
+                            <ChevronUp className="size-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Xuống"
+                            disabled={i === proxyFallbacks.length - 1}
+                            onClick={() =>
+                              setProxyFallbacks((prev) => {
+                                const n = [...prev]
+                                const tmp = n[i + 1]
+                                n[i + 1] = n[i]
+                                n[i] = tmp
+                                return n
+                              })
+                            }
+                          >
+                            <ChevronDown className="size-3.5" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon-sm"
+                            variant="ghost"
+                            title="Bỏ khỏi danh sách dự phòng"
+                            className="text-[var(--error)]"
+                            onClick={() => setProxyFallbacks((prev) => prev.filter((_, k) => k !== i))}
+                          >
+                            <X className="size-3.5" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
 
                   {proxyResult ? (
                     <div
@@ -464,6 +555,11 @@ export function AccountDialog({
         rows={rows}
         value={proxyId}
         onPick={(id) => {
+          const url = id ? proxyList.find((x) => x.id === id)?.url : null
+          if (pickerMode === 'fallback') {
+            if (url) setProxyFallbacks((prev) => (prev.includes(url) ? prev : [...prev, url]))
+            return
+          }
           setProxyId(id)
           setProxyResult(proxyList.find((x) => x.id === id)?.lastTest ?? null)
         }}
