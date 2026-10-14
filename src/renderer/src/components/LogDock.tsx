@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Eraser, Filter } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
+import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { cn } from '@renderer/lib/utils'
 import type { LogLine } from '@shared/types'
 
@@ -94,21 +95,20 @@ export function LogDock({
 
       {open ? (
         <div className="border-t border-[var(--hairline-soft)] p-2">
-          <div
-            ref={boxRef}
-            className="h-[170px] overflow-auto rounded-[8px] bg-[var(--surface)] p-2.5 font-mono text-[11.5px] leading-[1.55]"
-          >
-            {shown.length === 0 ? (
-              <div className="text-[var(--stone)]">Không có dòng log nào.</div>
-            ) : (
-              shown.map((l, i) => (
-                <div key={`${l.at}-${i}`} className={cn('whitespace-pre-wrap', LEVEL_CLASS[l.level] ?? '')}>
-                  <span className="text-[var(--stone)]">{l.at.slice(11)} </span>
-                  <span className="font-semibold uppercase opacity-70">[{l.level}]</span> {l.msg}
-                </div>
-              ))
-            )}
-          </div>
+          <ScrollArea className="h-[170px] rounded-[8px] bg-[var(--surface)]">
+            <div ref={boxRef} className="p-2.5 font-mono text-[11.5px] leading-[1.55]">
+              {shown.length === 0 ? (
+                <div className="text-[var(--stone)]">Không có dòng log nào.</div>
+              ) : (
+                shown.map((l, i) => (
+                  <div key={`${l.at}-${i}`} className={cn('whitespace-pre-wrap', LEVEL_CLASS[l.level] ?? '')}>
+                    <span className="text-[var(--stone)]">{l.at.slice(11)} </span>
+                    <span className="font-semibold uppercase opacity-70">[{l.level}]</span> {l.msg}
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
         </div>
       ) : null}
     </div>

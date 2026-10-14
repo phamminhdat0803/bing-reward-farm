@@ -27,6 +27,7 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 import { Progress } from '@renderer/components/ui/progress'
 import { Separator } from '@renderer/components/ui/separator'
+import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@renderer/components/ui/sheet'
 import { fmtNum, pct, timeAgo } from '@renderer/lib/utils'
 
@@ -174,7 +175,8 @@ export function AccountDrawer(p: Props): React.JSX.Element {
               </div>
             </SheetHeader>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3.5">
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-4 px-4 py-3.5">
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -360,7 +362,8 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                 <div className="mb-1 text-[13px] font-semibold uppercase tracking-wide text-[var(--steel)]">
                   Log của tài khoản này
                 </div>
-                <div className="max-h-[170px] overflow-auto rounded-[8px] bg-[var(--surface)] p-2.5 font-mono text-[11px] leading-[1.55]">
+                <ScrollArea className="max-h-[170px] rounded-[8px] bg-[var(--surface)]">
+                  <div className="p-2.5 font-mono text-[11px] leading-[1.55]">
                   {p.logs.length === 0 ? (
                     <span className="text-[var(--stone)]">Chưa có log cho tài khoản này.</span>
                   ) : (
@@ -371,7 +374,8 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                       </div>
                     ))
                   )}
-                </div>
+                  </div>
+                </ScrollArea>
               </div>
 
               <Separator />
@@ -452,7 +456,8 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                   <Trash2 className="size-3.5" /> Xoá dữ liệu profile (làm lại từ đầu)
                 </Button>
               </div>
-            </div>
+              </div>
+            </ScrollArea>
           </div>
         ) : null}
       </SheetContent>

@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { cn } from '@renderer/lib/utils'
+import { ScrollArea, ScrollBar } from '@renderer/components/ui/scroll-area'
 
 // MiniMax data-table: canvas + hairline, header nền surface chữ steel (caption-bold),
 // hàng body padding 16px, divider hairline-soft.
@@ -9,7 +10,8 @@ function Table({
   ...props
 }: React.ComponentProps<'table'> & { containerClassName?: string }): React.JSX.Element {
   return (
-    <div data-slot="table-container" className={cn('relative w-full min-h-0 flex-1 overflow-auto', containerClassName)}>
+    // Dung ScrollArea (thanh cuon tu ve) thay cho cuon native
+    <ScrollArea data-slot="table-container" className={cn('relative min-h-0 w-full flex-1', containerClassName)}>
       {/* border-separate: BAT BUOC de thead sticky chay duoc tren Chrome
           (border-collapse lam position:sticky tren <thead>/<th> bi vo hieu) */}
       <table
@@ -17,7 +19,8 @@ function Table({
         className={cn('w-full caption-bottom border-separate border-spacing-0 text-sm', className)}
         {...props}
       />
-    </div>
+      <ScrollBar orientation="horizontal" />
+    </ScrollArea>
   )
 }
 

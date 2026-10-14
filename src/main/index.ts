@@ -156,15 +156,19 @@ function createWindow(): void {
           const wc = mainWindow?.webContents
           if (!wc) return
           try {
-            const r = await wc.executeJavaScript(`(async () => {
-              const box = document.querySelector('[data-slot="table-container"]')
-              const th = document.querySelector('[data-slot="table-head"]')
-              if (!box || !th) return { error: 'khong thay bang' }
-              const before = Math.round(th.getBoundingClientRect().top - box.getBoundingClientRect().top)
-              box.scrollTop = 500
-              await new Promise((r) => setTimeout(r, 400))
-              const after = Math.round(th.getBoundingClientRect().top - box.getBoundingClientRect().top)
-              return { scrollTop: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight, lechTruoc: before, lechSau: after }
+            const r = await wc.executeJavaScript(`(() => {
+              const root = document.querySelector('[data-slot="table-container"]')
+              const dump = (el, d = 0) => {
+                if (!el || d > 2) return []
+                return Array.from(el.children).map((c) => ({
+                  t: c.tagName.toLowerCase(),
+                  slot: c.getAttribute('data-slot'),
+                  state: c.getAttribute('data-state'),
+                  style: (c.getAttribute('style') || '').slice(0, 80),
+                  kids: dump(c, d + 1)
+                }))
+              }
+              return { rootTag: root ? root.tagName.toLowerCase() : null, tree: dump(root) }
             })()`)
             console.log(`[test-sticky] ${JSON.stringify(r)}`)
           } catch (e) {

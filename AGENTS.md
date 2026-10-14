@@ -31,6 +31,15 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 
 ## Sửa lỗi + tính năng 2026-10-14
 
+- **Dùng `ScrollArea` (shadcn/Radix) thay cuộn native**: `ui/table.tsx` render bảng trong `ScrollArea` +
+  `ScrollBar orientation="horizontal"`; `LogDock`, `AccountDrawer` (thân + log) cũng chuyển sang ScrollArea.
+  - Radix mặc định `type="hover"` ⇒ thanh cuộn **chỉ hiện khi rê chuột** (thậm chí không render). Đặt
+    `type="always"` trong `ui/scroll-area.tsx` để luôn hiện; thumb màu `--hairline` → hover `--stone`.
+  - Radix bọc children trong `div display: table` (inline style) — **không** ép `block` được bằng class
+    (`!block` là cú pháp Tailwind v3; v4 phải `block!`), nhưng **không cần**: đã đo `thead` sticky vẫn lệch 0px
+    trong `[data-slot="scroll-area-viewport"]`.
+  - Kiểm chứng DOM: `[data-slot="scroll-area-scrollbar"][data-state="visible"]` cho cả dọc và ngang + thumb.
+
 - **Sticky header bảng**: `ui/table.tsx` để `border-collapse` ⇒ Chrome **vô hiệu hoá `position: sticky`** trên
   `<thead>/<th>`. Sửa thành `border-separate border-spacing-0` (đường kẻ chuyển sang `[&>td]:border-b`).
   Đồng thời `ProxyPanel` bỏ lớp `div.overflow-auto` bọc ngoài `<Table>` (2 lớp cuộn ⇒ sticky không dính).
