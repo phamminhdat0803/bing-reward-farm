@@ -64,8 +64,9 @@ export function coreConfig(profile: Profile, overrides: Partial<CoreConfig['brow
   cfg.browser.profileDir = profile.profileDir
   cfg.browser.headless = profile.headless
   cfg.browser.channel = channel
-  cfg.browser.proxy = resolveProxyUrl(profile)
+  // Chain la nguon su that: sau preflight, proxy chinh phai la proxy SONG dau tien trong chain
   cfg.browser.proxyChain = resolveProxyChain(profile)
+  cfg.browser.proxy = cfg.browser.proxyChain[0] ?? resolveProxyUrl(profile)
   // Dung dung file exe da do duoc (ho tro ca Brave/Coc Coc/Vivaldi... chu khong chi Edge/Chrome)
   cfg.browser.executablePath = exeForCached(channel)
   cfg.browser = { ...cfg.browser, ...overrides }

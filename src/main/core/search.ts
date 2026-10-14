@@ -111,6 +111,21 @@ export async function runSearchPass(args: {
   page.setDefaultTimeout(30000)
   if (preparePage) await preparePage(page)
 
+  // Xac minh IP dau ra thuc te NGAY dau pass, TRUOC khi kiem tra dang nhap:
+  // doi proxy/chain co the lam Bing coi la phien la => van phai co bang chung IP de chan doan.
+  try {
+    await page.goto('http://ip-api.com/json', { waitUntil: 'domcontentloaded', timeout: 20000 })
+    const txt = (await page.textContent('body')) || ''
+    const ip = (txt.match(/"query":"([^"]+)"/) || [])[1]
+    const cc = (txt.match(/"country":"([^"]+)"/) || [])[1]
+    if (ip) log.info(`[${kind}] IP dau ra thuc te: ${ip}${cc ? ` (${cc})` : ''}`)
+    else log.warn(`[${kind}] khong doc duoc IP dau ra (proxy tra ve du lieu la)`)
+  } catch (e) {
+    log.warn(
+      `[${kind}] khong kiem tra duoc IP dau ra: ${String((e as Error).message).split('\n')[0].slice(0, 90)}`
+    )
+  }
+
   const first = await readCounters(page, log, { quiet: true })
   if (!first.signedIn) {
     if (ownPage) await page.close()
@@ -167,17 +182,6 @@ export async function runSearchPass(args: {
       today: lastToday,
       gained: lastPoints - (pointsBefore ?? lastPoints)
     })
-
-  // Xac minh IP dau ra thuc te (nghiem thu fallback proxy bang do that)
-  try {
-    await page.goto('http://ip-api.com/json', { waitUntil: 'domcontentloaded', timeout: 15000 })
-    const txt = (await page.textContent('body')) || ''
-    const ip = (txt.match(/"query":"([^"]+)"/) || [])[1]
-    const cc = (txt.match(/"country":"([^"]+)"/) || [])[1]
-    if (ip) log.info(`[${kind}] IP dau ra thuc te: ${ip}${cc ? ` (${cc})` : ''}`)
-  } catch {
-    log.warn(`[${kind}] khong kiem tra duoc IP dau ra (co the proxy loi)`)
-  }
 
   await gotoHome(page)
   emit()
