@@ -93,6 +93,8 @@ export async function runEarnPass(args: {
   page?: Page
   log: Logger
   shouldStop?: () => boolean
+  /** Bao tien do ra UI: 'earn' + so the da xu ly / tong so the */
+  onProgress?: (p: { kind: 'earn'; done: number; total: number; points: number | null; today: number | null; gained: number }) => void
 }): Promise<EarnResult> {
   const { cfg, ctx, log, shouldStop } = args
   const page = args.page ?? (await workPage(ctx))
@@ -149,7 +151,18 @@ export async function runEarnPass(args: {
   )
 
   const blocked: EarnResult['blocked'] = []
+  const totalCards = cards.filter((c) => !c.locked).length
   let done = 0
+  const emitEarn = (): void =>
+    args.onProgress?.({
+      kind: 'earn',
+      done,
+      total: totalCards,
+      points: pointsBefore ?? null,
+      today: todayBefore ?? null,
+      gained: 0
+    })
+  emitEarn()
   for (const card of cards) {
     if (shouldStop?.()) {
       log.warn('[earn] nguoi dung dung')
@@ -218,6 +231,7 @@ export async function runEarnPass(args: {
         }
 
         items.push({ label, href: card.href, points: card.points, visited: true })
+        emitEarn()
         log.info(
           `[earn] da click${card.points ? ` +${card.points}d` : ''}: ${label}${opened ? ' [tab moi]' : ' [goto]'}${wallpaper ? ' + wallpaper' : ''}`
         )

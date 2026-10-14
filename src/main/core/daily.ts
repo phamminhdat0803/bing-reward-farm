@@ -12,6 +12,8 @@ export async function runDailySet(args: {
   page?: Page
   log: Logger
   shouldStop?: () => boolean
+  /** Bao tien do ra UI: 'daily' + so muc da xu ly / tong so muc */
+  onProgress?: (p: { kind: 'daily'; done: number; total: number; points: number | null; today: number | null; gained: number }) => void
 }): Promise<DailySetResult> {
   const { cfg, ctx, log, shouldStop } = args
   const page = args.page ?? (await workPage(ctx))
@@ -91,6 +93,14 @@ export async function runDailySet(args: {
       await tab.waitForLoadState('domcontentloaded').catch(() => {})
       await cancellableSleep(randInt(cfg.daily.waitAfterClickMs.min, cfg.daily.waitAfterClickMs.max), shouldStop)
       items.push({ label, href: link.href, visited: true, reward: link.reward })
+      args.onProgress?.({
+        kind: 'daily',
+        done: items.length,
+        total: target,
+        points: pointsBefore ?? null,
+        today: null,
+        gained: 0
+      })
       log.info(`[daily] da click: ${label}${link.reward ? ` (+${link.reward})` : ''}${opened ? ' [tab moi]' : ''}`)
       if (opened) await opened.close().catch(() => {})
       await closeStrayPages(ctx, page)

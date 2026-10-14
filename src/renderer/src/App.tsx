@@ -110,7 +110,19 @@ export default function App(): React.JSX.Element {
     })
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
-    const offRun = window.api.onRunStatus(() => void reload())
+    const offRun = window.api.onRunStatus((s) => {
+      // Xoa tien do cu cua acc khi luot chay bat dau/ket thuc, tranh hien nham
+      // (vd chi chay "Kiem them" ma van con so 'Desktop 9/9' cua luot truoc)
+      if (s && s.profileId) {
+        setProgress((prev) => {
+          if (!(s.profileId in prev)) return prev
+          const next = { ...prev }
+          delete next[s.profileId]
+          return next
+        })
+      }
+      void reload()
+    })
     const offRunProg = window.api.onRunProgress((p) => setProgress((prev) => ({ ...prev, [p.profileId]: p })))
     const timer = window.setInterval(() => void reload(), 60000)
     return () => {
@@ -523,7 +535,15 @@ export default function App(): React.JSX.Element {
                       <div className="mt-1.5 flex items-center gap-2">
                         <span className="w-[118px] shrink-0 text-[12px] text-[var(--steel)]">
                           {pr
-                            ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search`
+                            ? pr.kind === 'mobile'
+                              ? `Mobile ${pr.done}/${pr.total} search`
+                              : pr.kind === 'desktop'
+                                ? `Desktop ${pr.done}/${pr.total} search`
+                                : pr.kind === 'earn'
+                                  ? `Keep earning ${pr.done}/${pr.total} thẻ`
+                                  : pr.kind === 'daily'
+                                    ? `Daily set ${pr.done}/${pr.total} mục`
+                                    : `${pr.kind} ${pr.done}/${pr.total}`
                             : 'đang chuẩn bị…'}
                         </span>
                         <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">

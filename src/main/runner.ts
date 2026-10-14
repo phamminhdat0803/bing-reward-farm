@@ -620,7 +620,14 @@ async function startRunNow(
             }
 
             if (doDaily && !shouldStop()) {
-              summary.daily = await runDailySet({ cfg, ctx: s.context, page, log: log2, shouldStop })
+              summary.daily = await runDailySet({
+                cfg,
+                ctx: s.context,
+                page,
+                log: log2,
+                shouldStop,
+                onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id })
+              })
               rec.daily = {
                 items: (summary.daily as { items: unknown[] }).items,
                 pointsBefore: (summary.daily as { pointsBefore: number | null }).pointsBefore,
@@ -645,7 +652,14 @@ async function startRunNow(
             }
 
             if (doEarn && !shouldStop()) {
-              summary.earn = await runEarnPass({ cfg, ctx: s.context, page, log: log2, shouldStop })
+              summary.earn = await runEarnPass({
+                cfg,
+                ctx: s.context,
+                page,
+                log: log2,
+                shouldStop,
+                onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id })
+              })
               rec.earn = {
                 items: (summary.earn as { items: unknown[] }).items,
                 pointsBefore: (summary.earn as { pointsBefore: number | null }).pointsBefore,

@@ -102,7 +102,8 @@ export const DEFAULTS: CoreConfig = {
 
 /** Tien do trong luc search — day ra UI sau moi search */
 export type SearchProgress = {
-  kind: 'desktop' | 'mobile'
+  /** desktop | mobile = luot search; earn = Keep earning; daily = Daily set */
+  kind: 'desktop' | 'mobile' | 'earn' | 'daily'
   done: number
   total: number
   points: number | null
