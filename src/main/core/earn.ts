@@ -11,73 +11,91 @@ type OfferCard = {
   href: string
   text: string
   points: number | null
+  /** Nguon tim thay: 'rewarddo' = PUBL=RewardsDO, 'scan' = quet rong */
+  source?: 'rewarddo' | 'scan'
   /** The bi khoa boi cap do (vd "Silver level required") */
   locked: boolean
   lockReason: string | null
 }
 
 /** Doc cac the daily-offer chua hoan thanh trong muc "Keep earning" cua /earn. */
-async function readOfferCards(page: Page): Promise<OfferCard[]> {
+async function readOfferCards(
+  page: Page
+): Promise<{ cards: OfferCard[]; raw: { href: string; text: string; w: number; h: number }[] }> {
   return page.evaluate(() => {
     const norm = (s: string | null | undefined): string => (s || '').replace(/\s+/g, ' ').trim()
     const out: OfferCard[] = []
+    const raw: { href: string; text: string; w: number; h: number }[] = []
     const seen = new Set<string>()
 
     // Ghi chu khoa cap do nam o the cha (khong nam trong <a>) nen phai doc ca container
     const LOCK =
       /(silver|gold|bronze|platinum)\s*(level)?\s*required|level\s*\d+\s*required|required\s*(silver|gold|level)|hạng\s*(bạc|vàng|đồng|kim cương)|yêu cầu\s*(cấp|hạng)|cần\s*(hạng|cấp)|đạt\s*(hạng|cấp)/i
 
-    const containerText = (a: HTMLElement): string => {
-      let el: HTMLElement | null = a
-      for (let i = 0; i < 3 && el?.parentElement; i += 1) el = el.parentElement
-      return norm((el ?? a).innerText || (el ?? a).textContent).slice(0, 400)
-    }
-
-    const push = (href: string, text: string, extra?: string): void => {
-      if (!href || seen.has(href)) return
-      seen.add(href)
-      const m = text.match(/\+\s*(\d{1,4})/) ?? text.match(/(\d{1,4})\s*(?:points?|điểm)/i)
-      const scope = `${text} ${extra ?? ''}`
-      const lock = scope.match(LOCK)
-      out.push({
-        href,
-        text: text.slice(0, 140),
-        points: m ? Number(m[1]) : null,
-        locked: Boolean(lock),
-        lockReason: lock ? lock[0].replace(/\s+/g, ' ').trim() : null
-      })
+    /**
+     * Text cua the: di len toi da 3 cap nhung DUNG lai khi gap ancestor qua lon
+     * (tranh lay text ca section -> nhieu the bi danh dau khoa oan).
+     */
+    const containerText = (a: HTMLAnchorElement): string => {
+      const own = a.getBoundingClientRect()
+      const ownArea = Math.max(1, own.width * own.height)
+      let el: HTMLElement = a
+      for (let i = 0; i < 3 && el.parentElement; i += 1) {
+        const p: HTMLElement = el.parentElement
+        const pr = p.getBoundingClientRect()
+        if (i > 0 && pr.width * pr.height > ownArea * 6) break
+        el = p
+      }
+      return norm(el.innerText || el.textContent).slice(0, 400)
     }
 
     const skip = (href: string, text: string): boolean =>
       /referandearn|\/refer\b|\/refer\?|\/quest\//i.test(href) || /completed|đã hoàn thành/i.test(text)
 
-    // 1) The chuan: daily offer gan PUBL=RewardsDO (VN/US)
+    const push = (a: HTMLAnchorElement, text: string, source: 'rewarddo' | 'scan'): void => {
+      const href = a.href
+      if (!href || seen.has(href)) return
+      seen.add(href)
+      const m = text.match(/\+\s*(\d{1,4})/) ?? text.match(/(\d{1,4})\s*(?:points?|điểm)/i)
+      const lock = (text + ' ' + containerText(a)).match(LOCK)
+      out.push({
+        href,
+        text: text.slice(0, 140),
+        points: m ? Number(m[1]) : null,
+        locked: Boolean(lock),
+        lockReason: lock ? lock[0].replace(/\s+/g, ' ').trim() : null,
+        source
+      })
+    }
+
+    // 1) The chuan: daily offer gan PUBL=RewardsDO (VN/US) — uu tien truoc
     for (const el of Array.from(document.querySelectorAll('a[href*="PUBL=RewardsDO"]'))) {
       const a = el as HTMLAnchorElement
       const text = norm(a.innerText || a.textContent)
       if (skip(a.href, text)) continue
-      push(a.href, text, containerText(a))
+      push(a, text, 'rewarddo')
     }
 
-    // 2) Du phong cho khu vuc khac (vd Dai Loan): the co nhan "+N" va tro toi bing.com search/spotlight
-    if (out.length === 0) {
-      for (const el of Array.from(document.querySelectorAll('a[href]'))) {
-        const a = el as HTMLAnchorElement
-        const href = a.href
-        if (!/bing\.com\/(search|spotlight)\//i.test(href)) continue
-        const text = norm(a.innerText || a.textContent)
-        if (skip(href, text)) continue
-        if (!/\+\s*\d{1,4}/.test(text)) continue
-        const rect = a.getBoundingClientRect()
-        if (rect.width < 80 || rect.height < 30) continue
-        push(href, text, containerText(a))
-      }
+    // 2) LUON quet rong them (truoc day chi quet khi KHONG co the PUBL nao => bo sot cac the 5 diem khac):
+    //    moi the co nhan "+N" diem, kich thuoc hop ly, khong phai refer/quest/completed.
+    for (const el of Array.from(document.querySelectorAll('a[href]'))) {
+      const a = el as HTMLAnchorElement
+      const href = a.href || ''
+      if (!/^https?:/i.test(href)) continue
+      const text = norm(a.innerText || a.textContent)
+      if (!/\+\s*\d{1,4}/.test(text)) continue
+      if (skip(href, text)) continue
+      const rect = a.getBoundingClientRect()
+      const w = Math.round(rect.width)
+      const h = Math.round(rect.height)
+      if (w < 60 || h < 24) continue
+      raw.push({ href, text: text.slice(0, 90), w, h })
+      push(a, text, 'scan')
     }
 
-    return out
+    return { cards: out, raw: raw.slice(0, 25) }
   })
 }
-
 /** Doc chuoi "x/y" cua muc Keep earning (vd "5/45") de biet tien do. */
 async function readSectionProgress(page: Page): Promise<string | null> {
   return page.evaluate(() => {
@@ -143,12 +161,25 @@ export async function runEarnPass(args: {
   const pointsBefore = snap.points
   const todayBefore = snap.todayPoints
   const sectionBefore = await readSectionProgress(page).catch(() => null)
-  const cards = await readOfferCards(page).catch(() => [] as OfferCard[])
+  const cardScan = await readOfferCards(page).catch(() => ({ cards: [] as OfferCard[], raw: [] }))
+  const cards = cardScan.cards
   const items: EarnResult['items'] = []
 
   log.info(
-    `[earn] Keep earning ${sectionBefore ?? '?'} | ${cards.length} the kiem duoc diem | diem=${pointsBefore ?? '?'} hom-nay=${todayBefore ?? '?'}`
+    `[earn] Keep earning ${sectionBefore ?? '?'} | ${cards.length} the tim thay (${cards.filter((c) => !c.locked).length} the mo duoc) | diem=${pointsBefore ?? '?'} hom-nay=${todayBefore ?? '?'}`
   )
+  // Chan doan: liet ke tung the tim duoc (nguon, diem, co bi khoa khong)
+  for (const c of cards.slice(0, 15)) {
+    log.info(
+      `[earn] the[${c.source ?? '?'}]: ${c.points ? `+${c.points}d ` : ''}${c.text.slice(0, 70)}${c.locked ? ` [KHOA: ${c.lockReason}]` : ' [MO]'}`
+    )
+  }
+  if (cards.filter((c) => !c.locked).length === 0 && cardScan.raw.length > 0) {
+    log.info(`[earn] khong co the mo duoc — ${cardScan.raw.length} ung vien co '+N' tren trang:`)
+    for (const r of cardScan.raw.slice(0, 12)) {
+      log.info(`[earn]   ung vien ${r.w}x${r.h}: ${r.text} | ${r.href.slice(0, 90)}`)
+    }
+  }
 
   const blocked: EarnResult['blocked'] = []
   const totalCards = cards.filter((c) => !c.locked).length
