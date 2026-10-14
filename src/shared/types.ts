@@ -20,6 +20,8 @@ export type Profile = {
   proxyId?: string | null
   /** Proxy du phong theo thu tu (sau proxy chinh) */
   proxyFallbacks?: string[] | null
+  /** Proxy sống gần nhất (gợi ý ưu tiên khi chạy) */
+  lastGoodProxy?: string | null
   note?: string
   createdAt: string
   lastRunAt: string | null

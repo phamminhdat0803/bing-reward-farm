@@ -474,8 +474,14 @@ async function startRunNow(
         setActiveChain(profile.id, live)
           if (live.length !== chainAll.length) {
             const oldMain = resolveProxyUrl(profile)
-            updateProfile(profile.id, { proxyId: null, proxy: live[0], proxyFallbacks: live.slice(1) })
-            log.info(`[proxy] doi proxy chinh: ${oldMain ?? '(khong)'} -> ${live[0]}`)
+            // CHI ghi nho proxy song gan nhat lam GOI Y uu tien cho lan sau.
+            // TUYET DOI khong ghi lai proxyId/proxy/proxyFallbacks o day: lam vay se XOA MAT
+            // danh sach proxy du phong nguoi dung da them (loi da gap: them fallback -> chay 1 lan
+            // -> thoat app -> mat het).
+            updateProfile(profile.id, { lastGoodProxy: live[0] })
+            log.info(
+              `[proxy] doi proxy chinh cho lan chay nay: ${oldMain ?? '(khong)'} -> ${live[0]} (giu nguyen cau hinh da luu)`
+            )
           }
         }
       }

@@ -10,15 +10,27 @@ const FILE = path.join(os.homedir(), 'AppData', 'Roaming', 'bing-reward-farm', '
 const BAK = path.join(os.tmpdir(), 'profiles-backup.json')
 const mode = process.argv[2]
 
+// KHOI PHUC AN TOAN: chi sua proxy/proxyId/proxyFallbacks cua acc da test, KHONG ghi de ca file
 if (mode === 'restore') {
   if (!fs.existsSync(BAK)) {
     console.log('khong co backup')
     process.exit(1)
   }
-  fs.copyFileSync(BAK, FILE)
-  const j = JSON.parse(fs.readFileSync(FILE, 'utf8'))
-  const t = j.profiles.find((p) => p.proxyFallbacks || p.proxy === 'http://127.0.0.1:9')
-  console.log('restored. profile test con fallback?', !!t)
+  const cur = JSON.parse(fs.readFileSync(FILE, 'utf8'))
+  const bak = JSON.parse(fs.readFileSync(BAK, 'utf8'))
+  let n = 0
+  const ids = (process.env.RESTORE_IDS || 'default,thap-vu,tien-at-duong,ke-ao,datkenhtg').split(',')
+  for (const id of ids) {
+    const c = cur.profiles.find((p) => p.id === id.trim())
+    const b = bak.profiles.find((p) => p.id === id.trim())
+    if (!c || !b) continue
+    c.proxy = b.proxy ?? null
+    c.proxyId = b.proxyId ?? null
+    c.proxyFallbacks = b.proxyFallbacks ?? null
+    n += 1
+  }
+  fs.writeFileSync(FILE, JSON.stringify(cur, null, 2) + '\n', 'utf8')
+  console.log('restored (surgical) ' + n + ' profile: chi 3 truong proxy')
   process.exit(0)
 }
 

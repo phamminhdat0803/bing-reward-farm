@@ -19,6 +19,11 @@ export type Profile = {
   proxyId?: string | null
   /** Proxy du phong theo thu tu (sau proxy chinh) */
   proxyFallbacks?: string[] | null
+  /**
+   * Proxy song gan nhat (do preflight ghi nho). CHI la goi y uu tien khi launch,
+   * KHONG thay the proxyId/proxyFallbacks cua nguoi dung.
+   */
+  lastGoodProxy?: string | null
   note?: string
   createdAt: string
   lastRunAt: string | null

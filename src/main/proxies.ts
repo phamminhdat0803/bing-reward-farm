@@ -165,6 +165,7 @@ export function resolveProxyChain(profile: {
   proxyId?: string | null
   proxy?: string | null
   proxyFallbacks?: string[] | null
+  lastGoodProxy?: string | null
 }): string[] {
   const id = (profile as { id?: string }).id
   if (id && chainOverride[id] !== undefined) return chainOverride[id]
@@ -175,6 +176,12 @@ export function resolveProxyChain(profile: {
     const v = String(p || '').trim()
     if (v && !out.includes(v)) out.push(v)
   }
+  // Goi y tu lan chay truoc: uu tien proxy song gan nhat nhung KHONG bo proxy nao cua nguoi dung
+  const good = String(profile.lastGoodProxy || '').trim()
+  if (good && out.includes(good)) {
+    return [good, ...out.filter((u) => u !== good)]
+  }
+  if (good && out.length === 0) return [good]
   return out
 }
 
