@@ -146,52 +146,62 @@ export async function checkProxyHealth(url: string, opts: { force?: boolean } = 
   const cached = healthCache[url]
   if (!opts.force && cached && (cooldownUntil[url] ?? 0) > now) return cached
 
-  const base = await testProxy(url)
   const at = new Date().toISOString()
-  let health: ProxyHealth
+  const parsed = parseProxy(url)
+  if (!parsed) {
+    const h: ProxyHealth = { status: 'dead', error: 'khong phan tich duoc chuoi proxy', checkedAt: at }
+    healthCache[url] = h
+    return h
+  }
 
-  if (!base.ok) {
-    health = { status: 'dead', latency: base.latency, error: base.error, checkedAt: at }
-  } else {
-    const parsed = parseProxy(url)
-    if (!parsed) {
-      health = { status: 'dead', error: 'khong phan tich duoc chuoi proxy', checkedAt: at }
-    } else {
-      const t0 = Date.now()
-      let bingOk = false
-      let bingErr: string | undefined
-      try {
-        const req = await request.newContext({
-          proxy: { server: parsed.server, username: parsed.username, password: parsed.password },
-          timeout: 15000
-        })
-        try {
-          const res = await req.get('https://www.bing.com/?FORM=Z9FD1', { timeout: 15000 })
-          bingOk = res.status() < 400
-          if (!bingOk) bingErr = `Bing tra HTTP ${res.status()}`
-        } finally {
-          await req.dispose().catch(() => {})
-        }
-      } catch (e) {
-        bingErr = String((e as Error).message).split('\n')[0].slice(0, 110)
-      }
-      health = bingOk
-        ? {
-            status: 'live',
-            ip: base.ip,
-            country: base.country,
-            latency: Date.now() - t0,
-            checkedAt: at
-          }
-        : {
-            status: 'blocks-bing',
-            ip: base.ip,
-            country: base.country,
-            latency: base.latency,
-            error: bingErr ?? 'khong vao duoc bing',
-            checkedAt: at
-          }
+  // BUOC 1 (quan trong nhat): qua duoc bing.com moi dung duoc cho Rewards.
+  const t0 = Date.now()
+  let bingOk = false
+  let bingStatus = 0
+  let bingErr: string | undefined
+  try {
+    const req = await request.newContext({
+      proxy: { server: parsed.server, username: parsed.username, password: parsed.password },
+      timeout: 15000
+    })
+    try {
+      const res = await req.get('https://www.bing.com/?FORM=Z9FD1', { timeout: 15000 })
+      bingStatus = res.status()
+      bingOk = bingStatus < 400
+    } finally {
+      await req.dispose().catch(() => {})
     }
+  } catch (e) {
+    bingErr = String((e as Error).message).split('\n')[0].slice(0, 110)
+  }
+  const latency = Date.now() - t0
+
+  // BUOC 2: lay IP ra chi de HIEN THI. ip-api co the rate-limit (429) -> KHONG duoc coi la proxy chet.
+  let ip: string | undefined
+  let country: string | undefined
+  const info = await testProxy(url).catch(() => null)
+  if (info?.ok) {
+    ip = info.ip
+    country = info.country
+  }
+
+  let health: ProxyHealth
+  if (bingOk) {
+    health = { status: 'live', ip, country, latency, checkedAt: at }
+  } else if (bingStatus === 403 || bingStatus === 429) {
+    // Ket noi duoc nhung Bing tu choi -> khong dung duoc cho Rewards
+    health = { status: 'blocks-bing', ip, country, latency, error: `Bing tra HTTP ${bingStatus}`, checkedAt: at }
+  } else if (bingErr || bingStatus >= 400) {
+    health = {
+      status: 'blocks-bing',
+      ip,
+      country,
+      latency,
+      error: bingErr ?? `Bing tra HTTP ${bingStatus}`,
+      checkedAt: at
+    }
+  } else {
+    health = { status: 'dead', ip, country, latency, error: 'khong ket noi duoc proxy', checkedAt: at }
   }
 
   healthCache[url] = health
