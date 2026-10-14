@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
@@ -251,6 +251,16 @@ if (process.env.BRF_TEST_ALL) {
     })()
   }
 
+  // BRF_THROW=1 -> nem loi khong bat (kiem chung luoi an toan: app phai KHONG hien dialog va van song)
+  if (process.env.BRF_THROW) {
+    setTimeout(() => {
+      // loi mo phong dung kieu loi mang/TLS lam chet main process truoc day
+      const e = new Error('Client network socket disconnected before secure TLS connection was established')
+      e.stack = 'Error: ' + e.message + '\n    at TLSSocket.onConnectEnd (node:_tls_wrap:1750:19)'
+      throw e
+    }, 9000)
+  }
+
   // Tien ich dev: BRF_OPEN_MENU=<selector> -> tu bam 1 nut de mo menu/popover (kiem tra nhan khong bi xuong dong)
   if (process.env.BRF_OPEN_MENU) {
     mainWindow.webContents.once('did-finish-load', () => {
@@ -468,6 +478,42 @@ if (process.env.BRF_DEBUG) {
 }
 
 setHealthNotifier(() => broadcast('proxies:healthChanged', {}))
+// ---------------------------------------------------------------------------
+// Luoi an toan cho MAIN PROCESS.
+// Loi mang kieu "Client network socket disconnected before secure TLS connection
+// was established" (undici/Node socket) truoc day lam Electron hien dialog
+// "A JavaScript error occurred in the main process" roi tat app.
+// Tu day: ghi log + day len Log dock de nguoi dung thay, app VAN CHAY tiep.
+// ---------------------------------------------------------------------------
+function moTa(e: unknown): string {
+  if (e instanceof Error) return `${e.message}\n${e.stack ?? ''}`.slice(0, 800)
+  return String(e).slice(0, 800)
+}
+
+function ghiCrashLog(kind: string, e: unknown): void {
+  const line = `[${new Date().toISOString()}] [${kind}] ${moTa(e)}\n`
+  try {
+    const dir = app.getPath('userData')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'crash.log'), line, 'utf8')
+  } catch {
+    /* bo qua */
+  }
+  console.error(`[${kind}]`, moTa(e))
+  try {
+    broadcast('log:line', {
+      at: new Date().toISOString(),
+      level: 'error',
+      msg: `[loi main] ${kind}: ${String((e as Error)?.message ?? e).slice(0, 200)}`
+    } as never)
+  } catch {
+    /* bo qua */
+  }
+}
+
+process.on('uncaughtException', (err) => ghiCrashLog('uncaughtException', err))
+process.on('unhandledRejection', (reason) => ghiCrashLog('unhandledRejection', reason))
+
 startHealthLoop({ everyMs: 45000, concurrency: 4 })
 
 app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardfarm')

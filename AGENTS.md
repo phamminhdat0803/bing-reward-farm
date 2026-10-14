@@ -259,3 +259,19 @@ Ly do (do that, khong phai loi code):
 - Acc dang nhap bang IP nha (`default`), khi doi sang proxy la -> Bing tra ve `not-signed-in`
   => pass dung som truoc buoc do IP. Muon co bang chung: dang nhap acc qua dung proxy do
   (Mo trinh duyet -> dang nhap) roi chay lai, hoac dung proxy tra phi on dinh.
+
+## Loi mang lam chet app (fixed 2026-10-14)
+
+Trieu chung: dialog "A JavaScript error occurred in the main process" voi
+`Error: Client network socket disconnected before secure TLS connection was established`
+tai `TLSSocket.onConnectEnd` -> Electron hien dialog va tat app.
+
+Nguyen nhan: main process khong co handler cho `uncaughtException`/`unhandledRejection`;
+mot loi socket/TLS (undici fetch hoac Playwright khi lam viec voi proxy) nem ra ngoai => Electron fatal dialog.
+
+Fix (src/main/index.ts): luoi an toan o dau main process
+- `process.on('uncaughtException')` + `process.on('unhandledRejection')` -> ghi `%APPDATA%\bing-reward-farm\crash.log`
+  + day 1 dong vao Log dock, APP VAN CHAY (khong con dialog).
+- `src/main/core/browser.ts`: fetch CDP `/json/version` duoc `.catch(() => null)`.
+- Dev hook `BRF_THROW=1` de tai hien loi nay khi kiem thu.
+Da kiem chung: BRF_THROW nem dung loi TLS tren -> crash.log ghi lai, app van song (1 cua so, anh UI binh thuong).

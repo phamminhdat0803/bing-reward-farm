@@ -213,7 +213,8 @@ export async function waitForCdp(endpoint: string, timeoutMs = 30000): Promise<b
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
     try {
-      const res = await fetch(`${endpoint}/json/version`)
+      const res = await fetch(`${endpoint}/json/version`).catch(() => null)
+    if (!res) return { ok: false } as never
       if (res.ok) return true
     } catch {
       /* chua len */
