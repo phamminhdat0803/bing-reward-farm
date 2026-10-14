@@ -5,6 +5,7 @@ import { EARN_URL } from './core/rewards'
 import { findBrowserExe, openCdpBrowser, parseProxy, waitForCdp } from './core/browser'
 import { exeFor } from './browser-detect'
 import { allocatePort, loadStore, saveStore, type Profile } from './profiles'
+import { resolveProxyChain, resolveProxyUrl } from './proxies'
 import { withProfileLock } from './lock'
 
 export type BrowserState = {
@@ -78,11 +79,17 @@ async function openBrowserUnlocked(profile: Profile): Promise<BrowserState & { e
   const exe = (await exeFor(channel)) ?? findBrowserExe(channel)
   if (!exe) throw new Error(`khong tim thay trinh duyet "${channel}" tren may`)
   const port = await ensurePort(profile)
-  const res = openCdpBrowser(profile.profileDir, port, channel, EARN_URL, exe, profile.proxy)
+  // Mo thu cong cung phai dung dung kho proxy: proxyId -> url, va chuoi du phong
+  const proxyUrl = resolveProxyUrl(profile)
+  const proxyChain = resolveProxyChain(profile)
+  const res = openCdpBrowser(profile.profileDir, port, channel, EARN_URL, exe, proxyUrl, proxyChain)
+  if (proxyChain.length > 1) {
+    console.log("[proxy] mo browser voi chain " + proxyChain.length + " proxy: " + proxyChain.join(" , "))
+  }
   const ok = await waitForCdp(res.cdpUrl, 30000)
   if (!ok) throw new Error(`CDP khong len o cong ${port} (kiem tra profile co bi khoa khong)`)
 
-  const parsed = parseProxy(profile.proxy)
+  const parsed = parseProxy(proxyUrl)
   if (parsed?.username && parsed?.password) {
     try {
       const browser = await chromium.connectOverCDP(res.cdpUrl)

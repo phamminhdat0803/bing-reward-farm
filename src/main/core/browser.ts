@@ -181,7 +181,8 @@ export function openCdpBrowser(
   channel: string,
   startUrl: string,
   exeOverride?: string | null,
-  proxyStr?: string | null
+  proxyStr?: string | null,
+  proxyChain?: string[] | null
 ): OpenResult {
   const exe = exeOverride ?? findBrowserExe(channel)
   if (!exe) throw new Error(`khong tim thay trinh duyet cho channel "${channel}"`)
@@ -197,8 +198,12 @@ export function openCdpBrowser(
     '--disable-sync'
   ]
 
+  // Uu tien chuoi du phong: tu 2 proxy tro len thi dua ca danh sach cho Chromium tu fallback
+  const chain = (proxyChain ?? []).filter(Boolean)
   const parsed = parseProxy(proxyStr)
-  if (parsed) {
+  if (chain.length > 1 && !chain.some((p) => /@/.test(p))) {
+    args.push(`--proxy-server=${chain.join(",")}`)
+  } else if (parsed) {
     args.push(`--proxy-server=${parsed.server}`)
   }
 

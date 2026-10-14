@@ -105,6 +105,8 @@ export function addProfile(input: Partial<Profile>): Profile {
     desktopMax: input.desktopMax ?? null,
     mobileMax: input.mobileMax ?? null,
     proxy: input.proxy ? input.proxy.trim() : null,
+    proxyId: input.proxyId ?? null,
+    proxyFallbacks: input.proxyFallbacks ?? null,
     note: input.note,
     createdAt: new Date().toISOString(),
     lastRunAt: null
