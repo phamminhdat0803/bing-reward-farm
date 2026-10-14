@@ -148,6 +148,43 @@ function createWindow(): void {
     })()
   }
 
+  // Tien ich dev: BRF_TEST_DRAWER=1 -> tu bam lan luot cac dong trong bang va bao trang thai drawer
+  // (de kiem chung loi "bam dong 2 la tat drawer")
+  if (process.env.BRF_TEST_DRAWER) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const read = (): Promise<string> =>
+            wc.executeJavaScript(`(() => {
+              const d = document.querySelector('[data-slot="sheet-content"]')
+              if (!d) return '(khong co drawer)'
+              const t = d.querySelector('[data-slot="sheet-title"]')
+              return 'MO: ' + (t ? t.textContent.trim() : '?')
+            })()`)
+          try {
+            for (const i of [0, 1, 2, 1, 0]) {
+              const clicked = await wc.executeJavaScript(`(() => {
+                const rows = document.querySelectorAll('tbody tr')
+                const r = rows[${i}]
+                if (!r) return 'khong co dong ${i}'
+                r.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+                r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+                r.click()
+                return 'da bam dong ${i}'
+              })()`)
+              await new Promise((r) => setTimeout(r, 700))
+              console.log(`[test-drawer] ${clicked} -> ${await read()}`)
+            }
+          } catch (e) {
+            console.error('[test-drawer] loi', e)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 9000))
+    })
+  }
+
   // Tien ich dev: BRF_REFRESH=1 -> tu bam "Cap nhat trang thai" (mo trinh duyet lay point)
   if (process.env.BRF_REFRESH) {
     mainWindow.webContents.once('did-finish-load', () => {

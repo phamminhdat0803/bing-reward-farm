@@ -23,6 +23,14 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { Input } from '@renderer/components/ui/input'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@renderer/components/ui/context-menu'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import { ProxyDialog } from '@renderer/components/ProxyDialog'
 import { BulkProxyDialog } from '@renderer/components/BulkProxyDialog'
@@ -531,12 +539,13 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                   const t = p.lastTest
                   const selected = selectedIds.includes(p.id)
                   return (
-                    <TableRow
-                      key={p.id}
-                      data-state={selected ? 'selected' : undefined}
-                      className="cursor-pointer"
-                      onClick={() => toggleSelectOne(p.id)}
-                    >
+                    <ContextMenu key={p.id}>
+                      <ContextMenuTrigger asChild>
+                        <TableRow
+                          data-state={selected ? 'selected' : undefined}
+                          className="cursor-pointer"
+                          onClick={() => toggleSelectOne(p.id)}
+                        >
                       <TableCell className="w-[44px] px-2 text-center" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selected}
@@ -622,7 +631,44 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                           </Button>
                         </div>
                       </TableCell>
-                    </TableRow>
+                        </TableRow>
+                      </ContextMenuTrigger>
+
+                      <ContextMenuContent className="w-56">
+                        <ContextMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
+                          {p.label}
+                        </ContextMenuLabel>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem className="gap-2" onClick={() => void testOne(p.id)}>
+                          <Wifi className="size-3.5" /> Kiểm tra proxy này
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(p.url)
+                            toast.success('Đã copy chuỗi proxy.')
+                          }}
+                        >
+                          <ClipboardPaste className="size-3.5" /> Copy chuỗi proxy
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            setEditing(p)
+                            setDialogOpen(true)
+                          }}
+                        >
+                          <Pencil className="size-3.5" /> Sửa proxy
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          className="gap-2 text-[var(--error)]"
+                          onClick={() => deleteOne(p)}
+                        >
+                          <Trash2 className="size-3.5" /> Xoá khỏi kho
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   )
                 })
               )}

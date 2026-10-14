@@ -62,7 +62,10 @@ export default function App(): React.JSX.Element {
     void reload()
     void window.api.getSettings().then(setSettingsState)
     void window.api.detectBrowsers().then((l) => setBrowserCount(l.filter((b) => b.chromium).length))
-    void window.api.listProxies().then((l) => setProxyCount(l.length))
+    void window.api.listProxies().then((l) => {
+      setProxyCount(l.length)
+      setProxies(l)
+    })
     const offLog = window.api.onLog((line) => setLogs((prev) => [...prev.slice(-400), line]))
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
@@ -157,6 +160,24 @@ export default function App(): React.JSX.Element {
     setDialogOpen(false)
     setDrawerOpen(false)
     setBrowsersOpen(true)
+  }
+
+  /** Hỏi rồi xoá tài khoản khỏi danh sách (dùng cho toolbar + menu chuột phải). */
+  const confirmRemove = (ids: string[]): void => {
+    if (!ids.length) return
+    setConfirm({
+      title: ids.length === 1 ? 'Xoá tài khoản khỏi danh sách?' : `Xoá ${ids.length} tài khoản khỏi danh sách?`,
+      description: 'Chỉ xoá khỏi danh sách quản lý — KHÔNG xoá thư mục profile, nên có thể thêm lại sau.',
+      confirmLabel: 'Xoá khỏi danh sách',
+      danger: true,
+      onConfirm: async () => {
+        for (const id of ids) await window.api.removeProfile(id)
+        setSelectedIds([])
+        setActiveId(null)
+        await reload()
+        toast.success(`Đã xoá ${ids.length} tài khoản khỏi danh sách.`)
+      }
+    })
   }
 
   return (
@@ -264,24 +285,7 @@ export default function App(): React.JSX.Element {
               onEdit={() => {
                 if (activeRow) openAccountDialog(activeRow.profile)
               }}
-              onRemove={() => {
-                const ids = targetIds
-                if (!ids.length) return
-                setConfirm({
-                  title: `Xoá ${ids.length} tài khoản khỏi danh sách?`,
-                  description:
-                    'Chỉ xoá khỏi danh sách quản lý — KHÔNG xoá thư mục profile, nên có thể thêm lại sau.',
-                  confirmLabel: 'Xoá khỏi danh sách',
-                  danger: true,
-                  onConfirm: async () => {
-                    for (const id of ids) await window.api.removeProfile(id)
-                    setSelectedIds([])
-                    setActiveId(null)
-                    await reload()
-                    toast.success(`Đã xoá ${ids.length} tài khoản khỏi danh sách.`)
-                  }
-                })
-              }}
+              onRemove={() => confirmRemove(targetIds)}
               onOpenBrowser={() => void Promise.all(targetIds.map((id) => withBrowser(id, 'open')))}
               onCloseBrowser={() => void Promise.all(targetIds.map((id) => withBrowser(id, 'close')))}
               onLoginWindow={() => {
@@ -322,9 +326,27 @@ export default function App(): React.JSX.Element {
               onOpenBrowser={(id) => void withBrowser(id, 'open')}
               onCloseBrowser={(id) => void withBrowser(id, 'close')}
               onRefresh={(id) => void refreshPoints([id])}
-              onRun={(id, kinds) => void runKinds([id], kinds)}
+              onRun={(id, kinds) => {
+                // kinds = ['__all__'] nghia la chay full cho TAT CA tai khoan dang chon (menu chuot phai)
+                if (kinds.includes('__all__')) void runKinds(targetIds.length ? targetIds : [id], ['desktop', 'daily', 'earn', 'mobile'])
+                else void runKinds([id], kinds)
+              }}
               onStop={(id) => void stopRunSingle(id)}
               proxyLabels={Object.fromEntries(proxies.map((p) => [p.id, p.label]))}
+              onEdit={(id) => {
+                const r = rows.find((x) => x.id === id)
+                if (r) openAccountDialog(r.profile)
+              }}
+              onRemove={(id) => confirmRemove([id])}
+              onBulkRemove={() => confirmRemove(targetIds)}
+              onSignOut={(id) =>
+                void act(`signout:${id}`, async () => {
+                  const r = await window.api.signOut(id)
+                  if (r.ok) toast.success(`Đã đăng xuất (xoá ${r.cleared} cookie).`)
+                  else toast.error(`Đăng xuất lỗi: ${r.error}`)
+                  await reload()
+                })
+              }
             />
           </>
         ) : (

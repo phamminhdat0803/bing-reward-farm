@@ -29,6 +29,23 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 | `src/renderer/src/App.tsx` | layout MiniMax: banner + topnav + StatStrip + AppToolbar + **AccountsTable full-width** + **AccountDrawer** + LogPanel |
 | `src/renderer/src/components/` | `AppToolbar` (kiểu GPMLogin), `AccountsTable` (12 cột), `AccountDrawer` (Sheet chi tiết), `AccountDialog`, `StatStrip`, `LogPanel`, `ui/*` (shadcn đã chỉnh theo MiniMax) |
 
+## Sửa lỗi + tính năng 2026-10-14
+
+- **Chip "proxy đã xoá" sai (3 acc đang gán proxy thật)**: bản pull về làm `App.tsx` chỉ `setProxyCount(...)` mà
+  **quên `setProxies(...)`** ⇒ `proxyLabels` rỗng ⇒ chip nào cũng hiện "proxy đã xoá". Sửa: set cả hai.
+  (Kiểm tra nhanh: `profiles.json.profile.proxyId` phải khớp `proxies.json.items[].id`.)
+- **Bug "bấm dòng 1 mở drawer, dòng 2 tắt, dòng 3 mở"**: Sheet để `modal={false}` nên Radix vẫn dismiss khi
+  pointerdown ra ngoài ⇒ cú bấm sang dòng khác vừa đóng vừa mở. Sửa: `onInteractOutside`/`onFocusOutside` →
+  `preventDefault()` trong `AccountDrawer`. Kiểm chứng tự động (`BRF_TEST_DRAWER=1`):
+  `bấm dòng 0→MO Tài khoản chính · 1→Tháp Vu · 2→Tiến Đạt Dương · 1→Tháp Vu · 0→Tài khoản chính`.
+- **Menu chuột phải**: thêm `ui/context-menu.tsx` (shadcn). Dòng tài khoản: Xem chi tiết · Sửa · Mở/Đóng trình duyệt ·
+  Cập nhật trạng thái · Chạy full (nhãn "Chạy N tài khoản (full)" khi chọn nhiều) · Search desktop/mobile · Daily set ·
+  Kiếm thêm · Đăng xuất · Xoá khỏi danh sách. Dòng proxy: Kiểm tra · Copy chuỗi · Sửa · Xoá.
+  Chuột phải vào dòng chưa chọn ⇒ tự chọn dòng đó.
+- ⚠ **Proxy chết ⇒ tài khoản hiện "chưa đăng nhập" + dấu `—`** (không phải mất login!). Đo 2026-10-14:
+  `socks4://116.104.251.199:1088` (gán cho Tháp Vu) **Timeout** ⇒ acc đó không vào được Bing;
+  `socks4://116.101.14.169:1100` vẫn OK 729ms. Proxy free chết rất nhanh — test lại trước khi chạy.
+
 ## Tab "Proxy" (kho proxy dùng chung) — 2026-10-13
 
 - **Bulk add**: nút **Dán hàng loạt** (`BulkProxyDialog.tsx`) — dán mỗi dòng 1 proxy, hiện số dòng + đếm theo giao thức,
@@ -148,6 +165,7 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 | `BRF_BULK_FILE=<path>` | nạp danh sách proxy từ file qua đúng đường bulk add |
 | `BRF_TEST_ALL=1` | (đi với `BRF_BULK_FILE`) test toàn bộ proxy sau khi nạp, in tổng kết ra console |
 | `BRF_SEED_PROXY=1` | thêm 2 proxy mẫu vào kho để thử tab Proxy |
+| `BRF_TEST_DRAWER=1` (+ `BRF_TEST_DELAY=ms`) | tự bấm lần lượt các dòng trong bảng, in trạng thái drawer (kiểm chứng lỗi toggle drawer) |
 
 ## Đã kiểm chứng
 

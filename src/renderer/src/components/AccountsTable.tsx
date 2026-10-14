@@ -3,17 +3,28 @@ import {
   Chrome,
   Download,
   Gift,
+  LogIn,
+  Pencil,
   Play,
   RefreshCw,
   Smartphone,
   Sparkles,
   Square,
+  Trash2,
   X
 } from 'lucide-react'
 import type { RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from '@renderer/components/ui/context-menu'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +52,12 @@ type Props = {
   onStop: (id: string) => void
   /** id proxy -> tên gợi nhớ, để chip proxy hiển thị tên thay vì chuỗi dài */
   proxyLabels?: Record<string, string>
+  onEdit?: (id: string) => void
+  onRemove?: (id: string) => void
+  onSignOut?: (id: string) => void
+  /** Menu chuột phải cho nhiều tài khoản đang chọn */
+  onBulkRemove?: () => void
+  onBulkRefresh?: () => void
 }
 
 function MiniBar({
@@ -223,13 +240,21 @@ export function AccountsTable(p: Props): React.JSX.Element {
                 ((c?.runs.desktop as { searches?: number } | null)?.searches ?? 0) +
                 ((c?.runs.mobile as { searches?: number } | null)?.searches ?? 0)
               const active = row.id === p.activeId
+              const multi = p.selectedIds.length > 1 && p.selectedIds.includes(row.id)
               return (
-                <TableRow
+                <ContextMenu
                   key={row.id}
-                  data-state={p.selectedIds.includes(row.id) ? 'selected' : undefined}
-                  className={active ? 'bg-[var(--surface)]' : undefined}
-                  onClick={() => p.onOpenDetail(row.id)}
+                  onOpenChange={(o) => {
+                    // chuột phải vào dòng chưa chọn thì chọn luôn dòng đó
+                    if (o && !p.selectedIds.includes(row.id)) p.onToggle(row.id)
+                  }}
                 >
+                  <ContextMenuTrigger asChild>
+                    <TableRow
+                      data-state={p.selectedIds.includes(row.id) ? 'selected' : undefined}
+                      className={active ? 'bg-[var(--surface)]' : undefined}
+                      onClick={() => p.onOpenDetail(row.id)}
+                    >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={p.selectedIds.includes(row.id)}
@@ -378,7 +403,85 @@ export function AccountsTable(p: Props): React.JSX.Element {
                       )}
                     </div>
                   </TableCell>
-                </TableRow>
+                    </TableRow>
+                  </ContextMenuTrigger>
+
+                  <ContextMenuContent className="w-60">
+                    <ContextMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
+                      {multi ? `${p.selectedIds.length} tài khoản đang chọn` : row.profile.name}
+                    </ContextMenuLabel>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem className="gap-2" onClick={() => p.onOpenDetail(row.id)}>
+                      <Check className="size-3.5" /> Xem chi tiết
+                    </ContextMenuItem>
+                    {p.onEdit ? (
+                      <ContextMenuItem className="gap-2" onClick={() => p.onEdit?.(row.id)}>
+                        <Pencil className="size-3.5" /> Sửa tài khoản
+                      </ContextMenuItem>
+                    ) : null}
+                    <ContextMenuSeparator />
+                    {row.browser.running ? (
+                      <ContextMenuItem className="gap-2" onClick={() => p.onCloseBrowser(row.id)}>
+                        <X className="size-3.5" /> Đóng trình duyệt
+                      </ContextMenuItem>
+                    ) : (
+                      <ContextMenuItem className="gap-2" onClick={() => p.onOpenBrowser(row.id)}>
+                        <Chrome className="size-3.5" /> Mở trình duyệt (kèm CDP)
+                      </ContextMenuItem>
+                    )}
+                    <ContextMenuItem className="gap-2" onClick={() => p.onRefresh(row.id)}>
+                      <RefreshCw className="size-3.5" /> Cập nhật trạng thái
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    {row.run.running ? (
+                      <ContextMenuItem className="gap-2 text-[var(--error)]" onClick={() => p.onStop(row.id)}>
+                        <Square className="size-3.5" /> Dừng chạy
+                      </ContextMenuItem>
+                    ) : (
+                      <>
+                        <ContextMenuItem
+                          className="gap-2"
+                          onClick={() => (multi && p.onRun ? p.onRun(row.id, ['__all__']) : p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile']))}
+                        >
+                          <Play className="size-3.5" />
+                          {multi ? `Chạy ${p.selectedIds.length} tài khoản (full)` : 'Chạy tất cả (full)'}
+                        </ContextMenuItem>
+                        <ContextMenuItem className="gap-2" onClick={() => p.onRun(row.id, ['desktop'])}>
+                          <Download className="size-3.5" /> Chỉ Search desktop
+                        </ContextMenuItem>
+                        <ContextMenuItem className="gap-2" onClick={() => p.onRun(row.id, ['mobile'])}>
+                          <Smartphone className="size-3.5" /> Chỉ Search mobile
+                        </ContextMenuItem>
+                        <ContextMenuItem className="gap-2" onClick={() => p.onRun(row.id, ['daily'])}>
+                          <Gift className="size-3.5" /> Chỉ Daily set
+                        </ContextMenuItem>
+                        <ContextMenuItem className="gap-2" onClick={() => p.onRun(row.id, ['earn'])}>
+                          <Sparkles className="size-3.5" /> Chỉ Kiếm thêm (Keep earning)
+                        </ContextMenuItem>
+                      </>
+                    )}
+                    {p.onSignOut ? (
+                      <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem className="gap-2" onClick={() => p.onSignOut?.(row.id)}>
+                          <LogIn className="size-3.5" /> Đăng xuất (xoá cookie)
+                        </ContextMenuItem>
+                      </>
+                    ) : null}
+                    {p.onRemove ? (
+                      <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          className="gap-2 text-[var(--error)]"
+                          onClick={() => (multi && p.onBulkRemove ? p.onBulkRemove() : p.onRemove?.(row.id))}
+                        >
+                          <Trash2 className="size-3.5" />
+                          {multi ? `Xoá ${p.selectedIds.length} tài khoản khỏi danh sách` : 'Xoá khỏi danh sách'}
+                        </ContextMenuItem>
+                      </>
+                    ) : null}
+                  </ContextMenuContent>
+                </ContextMenu>
               )
             })
           )}

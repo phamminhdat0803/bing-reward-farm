@@ -132,6 +132,10 @@ export function AccountDrawer(p: Props): React.JSX.Element {
       <SheetContent
         side="right"
         showOverlay={false}
+        // Không tự đóng khi bấm ra ngoài: bấm sang dòng khác phải mở đúng dòng đó.
+        // (Để Radix tự dismiss thì bị lỗi "bấm dòng 2 là tắt drawer".)
+        onInteractOutside={(e) => e.preventDefault()}
+        onFocusOutside={(e) => e.preventDefault()}
         className="w-full border-l border-[var(--hairline)] bg-[var(--canvas)] p-0 shadow-[rgba(36,36,36,0.08)_0px_12px_16px_-4px] sm:max-w-[520px]"
       >
         {row ? (
