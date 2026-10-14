@@ -314,7 +314,17 @@ function createWindow(): void {
               const d = document.querySelector('[data-slot="sheet-content"]')
               if (!d) return '(khong co drawer)'
               const t = d.querySelector('[data-slot="sheet-title"]')
-              return 'MO: ' + (t ? t.textContent.trim() : '?')
+              const vp = d.querySelector('[data-slot="scroll-area-viewport"]')
+              const wrap = vp ? vp.firstElementChild : null
+              const w = (el) => (el ? Math.round(el.getBoundingClientRect().width) : 0)
+              return (
+                'MO: ' + (t ? t.textContent.trim() : '?') +
+                ' | drawer=' + w(d) +
+                ' | viewport=' + w(vp) + '/' + (vp ? vp.clientWidth : 0) +
+                ' | content=' + w(wrap) +
+                ' | scrollW=' + (vp ? vp.scrollWidth : 0) +
+                (vp && vp.scrollWidth > vp.clientWidth + 1 ? '  <-- TRAN NGANG' : '  (ok)')
+              )
             })()`)
           try {
             for (const i of [0, 1, 2, 1, 0]) {
