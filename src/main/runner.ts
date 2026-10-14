@@ -65,39 +65,82 @@ type Job = {
 const jobs = new Map<string, Job>()
 
 // ---------------------------------------------------------------------------
-// Hang doi chay: gioi han so job song song (settings.maxParallelRuns, mac dinh 2).
-// "Cham ma chac": vuot han thi vao hang doi FIFO, chay xong job nao thi lay job ke tiep.
+// Mo hinh chay:
+//   • TAI KHOAN KHAC NHAU  -> chay SONG SONG (moi acc mot lan rieng).
+//   • CUNG MOT ACC, nhieu lenh -> xep HANG DOI rieng: acc do chay xong lenh truoc moi toi lenh sau.
+//   • settings.maxParallelRuns > 0 = gioi han TONG tuy chon (0 = khong gioi han).
 // ---------------------------------------------------------------------------
 type RunHooks = {
   onLine?: (l: LogLine) => void
   onSnapshot?: (s: Snapshot) => void
   onStatusChange?: (profileId: string, running: boolean) => void
   onProgress?: (p: SearchProgress & { profileId: string }) => void
-  onQueue?: (items: { profileId: string; name: string; position: number }[]) => void
+  onQueue?: (q: QueueView) => void
 }
-const runQueue: { profile: Profile; kinds: string[]; hooks: RunHooks }[] = []
+type PendingRun = { profile: Profile; kinds: string[]; hooks: RunHooks }
+export type QueueView = {
+  /** Acc dang chay + so lenh dang cho cua CHINH acc do */
+  items: { profileId: string; name: string; pending: number }[]
+  /** Acc phai cho slot vi cham gioi han TONG (chi khi maxParallelRuns > 0) */
+  waiting: { profileId: string; name: string; position: number }[]
+  max: number
+}
+
+const pendingByProfile = new Map<string, PendingRun[]>()
+const waitingGlobal: PendingRun[] = []
 let pumping = false
 
-/** Danh sach dang cho (vi tri 1 = chay ke tiep). */
-export function queueState(): { profileId: string; name: string; position: number }[] {
-  return runQueue.map((q, i) => ({ profileId: q.profile.id, name: q.profile.name, position: i + 1 }))
+/** Hang doi theo tung acc (acc co lenh dang cho). */
+export function queueState(): QueueView['items'] {
+  const out: QueueView['items'] = []
+  for (const [id, list] of pendingByProfile) {
+    if (list.length === 0) continue
+    out.push({ profileId: id, name: list[0].profile.name, pending: list.length })
+  }
+  return out
+}
+
+function waitingState(): QueueView['waiting'] {
+  return waitingGlobal.map((w, i) => ({ profileId: w.profile.id, name: w.profile.name, position: i + 1 }))
+}
+
+export function queueView(): QueueView {
+  return {
+    items: queueState(),
+    waiting: waitingState(),
+    max: Math.max(0, getSettings().maxParallelRuns ?? 0)
+  }
 }
 
 function notifyQueue(): void {
-  const items = queueState()
-  for (const q of runQueue) q.hooks.onQueue?.(items)
+  const view = queueView()
+  for (const list of pendingByProfile.values()) for (const p of list) p.hooks.onQueue?.(view)
+  for (const w of waitingGlobal) w.hooks.onQueue?.(view)
 }
 
-/** Chay job ke tiep neu con slot. Goi sau khi 1 job ket thuc. */
+/** Sau khi 1 job ket thuc: chay lenh KE TIEP cua CHINH acc do (tuan tu trong cung acc). */
+function pumpProfile(profileId: string): void {
+  const list = pendingByProfile.get(profileId)
+  const next = list?.shift()
+  if (!next) {
+    pendingByProfile.delete(profileId)
+    return
+  }
+  if (list && list.length === 0) pendingByProfile.delete(profileId)
+  console.log('[queue] ' + next.profile.name + ': chay lenh ke tiep cua cung acc (con ' + (list?.length ?? 0) + ')')
+  void startRunNow(next.profile, next.kinds, next.hooks)
+}
+
+/** Chay tiep cac acc dang cho SLOT (chi khi co gioi han tong). */
 function pumpQueue(): void {
   if (pumping) return
   pumping = true
   try {
-    const max = Math.max(1, getSettings().maxParallelRuns ?? 2)
-    while (jobs.size < max && runQueue.length > 0) {
-      const next = runQueue.shift()
+    const cap = Math.max(0, getSettings().maxParallelRuns ?? 0)
+    while (waitingGlobal.length > 0 && (cap === 0 || jobs.size < cap)) {
+      const next = waitingGlobal.shift()
       if (!next) break
-      console.log('[queue] bat dau ' + next.profile.name + ' tu hang doi (con cho ' + runQueue.length + ')')
+      console.log('[queue] bat dau ' + next.profile.name + ' tu cho slot (con ' + waitingGlobal.length + ')')
       void startRunNow(next.profile, next.kinds, next.hooks)
     }
     notifyQueue()
@@ -106,12 +149,8 @@ function pumpQueue(): void {
   }
 }
 
-export function runStateAll(): {
-  running: string[]
-  queued: { profileId: string; name: string; position: number }[]
-  max: number
-} {
-  return { running: Array.from(jobs.keys()), queued: queueState(), max: Math.max(1, getSettings().maxParallelRuns ?? 2) }
+export function runStateAll(): { running: string[] } & QueueView {
+  return { running: Array.from(jobs.keys()), ...queueView() }
 }
 
 export function coreConfig(profile: Profile, overrides: Partial<CoreConfig['browser']> = {}): CoreConfig {
@@ -335,9 +374,10 @@ export function runState(profileId: string): {
   kinds: string[]
   log: LogLine[]
 } {
-  const pos = runQueue.findIndex((q) => q.profile.id === profileId)
-  const queued = pos >= 0
-  const queuePosition = queued ? pos + 1 : null
+  const pending = pendingByProfile.get(profileId)?.length ?? 0
+  const waitPos = waitingGlobal.findIndex((w) => w.profile.id === profileId)
+  const queued = pending > 0 || waitPos >= 0
+  const queuePosition = pending > 0 ? pending : waitPos >= 0 ? waitPos + 1 : null
   const job = jobs.get(profileId)
   if (!job || job.cancelled) return { running: false, queued, queuePosition, kinds: [], log: job?.log.slice(-200) ?? [] }
   return { running: true, queued, queuePosition, kinds: job.kinds, log: job.log.slice(-200) }
@@ -359,23 +399,33 @@ export async function startRun(
   kinds: string[],
   hooks: RunHooks = {}
 ): Promise<{ ok: boolean; runId?: string; error?: string; queued?: boolean; position?: number }> {
-  if (jobs.has(profile.id)) return { ok: false, error: 'profile nay dang chay' }
-  if (runQueue.some((q) => q.profile.id === profile.id)) {
-    return { ok: false, error: 'profile nay dang trong hang doi' }
-  }
-
-  const max = Math.max(1, getSettings().maxParallelRuns ?? 2)
-  // Con slot VA khong ai dang cho -> chay ngay; nguoc lai xep hang (FIFO, khong chen ngang)
-  if (jobs.size >= max || runQueue.length > 0) {
-    runQueue.push({ profile, kinds, hooks })
-    const position = runQueue.length
-    hooks.onStatusChange?.(profile.id, false)
-    hooks.onQueue?.(queueState())
-    console.log('[queue] ' + profile.name + ' vao hang doi (vi tri ' + position + '; dang chay ' + jobs.size + '/' + max + ')')
+  // CUNG ACC dang chay -> xep hang doi rieng cho acc nay (tuan tu).
+  // (Truoc day bao loi 'dang chay'; nay chap nhan xep hang de chay lan luot.)
+  if (jobs.has(profile.id)) {
+    const list = pendingByProfile.get(profile.id) ?? []
+    list.push({ profile, kinds, hooks })
+    pendingByProfile.set(profile.id, list)
+    const position = list.length
+    console.log('[queue] ' + profile.name + ': xep lenh thu ' + position + ' cho cung acc (acc dang chay)')
     hooks.onLine?.({
       at: new Date().toISOString(),
       level: 'info',
-      msg: `[queue] ${profile.name} vao hang doi (vi tri ${position}; dang chay ${jobs.size}/${max})`,
+      msg: `[queue] ${profile.name}: xếp lệnh thứ ${position} cho cùng acc (acc đang chạy)`,
+      profileId: profile.id
+    })
+    notifyQueue()
+    return { ok: true, queued: true, position }
+  }
+  // Gioi han TONG (tuy chon) -> phai cho slot
+  const cap = Math.max(0, getSettings().maxParallelRuns ?? 0)
+  if (cap > 0 && jobs.size >= cap) {
+    waitingGlobal.push({ profile, kinds, hooks })
+    const position = waitingGlobal.length
+    console.log('[queue] ' + profile.name + ' cho slot (dang chay ' + jobs.size + '/' + cap + ')')
+    hooks.onLine?.({
+      at: new Date().toISOString(),
+      level: 'info',
+      msg: `[queue] ${profile.name} chờ slot (đang chạy ${jobs.size}/${cap})`,
       profileId: profile.id
     })
     notifyQueue()
@@ -688,6 +738,7 @@ async function startRunNow(
       jobs.delete(profile.id)
       clearActiveChain(profile.id)
       hooks.onStatusChange?.(profile.id, false)
+      pumpProfile(profile.id)
       pumpQueue()
     }
   })

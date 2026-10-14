@@ -4,7 +4,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
 import { browserState, closeBrowser, openBrowser } from './browsers'
-import { openLoginWindow, queueState, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
+import { openLoginWindow, queueView, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
@@ -445,7 +445,7 @@ if (process.env.BRF_TEST_ALL) {
         } => ({
           onLine: (line: LogLine) => broadcast('log:line', line),
           onStatusChange: (profileId: string, running: boolean) => broadcast('run:status', { profileId, running }),
-          onQueue: () => broadcast('run:queue', { items: queueState(), max: runStateAll().max }),
+          onQueue: () => broadcast('run:queue', queueView()),
           onSnapshot: (snap) => broadcast('rewards:snapshot', snap as never),
           onProgress: (pr) => {
             broadcast('run:progress', pr as never)
@@ -595,7 +595,7 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
         if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
       },
       onStatusChange: (profileId, running) => broadcast('run:status', { profileId, running }),
-      onQueue: () => broadcast('run:queue', { items: queueState(), max: runStateAll().max })
+      onQueue: () => broadcast('run:queue', queueView())
     })
   })
   ipcMain.handle('run:stop', (_e, id) => {

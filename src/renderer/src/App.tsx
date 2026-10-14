@@ -28,9 +28,12 @@ export default function App(): React.JSX.Element {
     Record<string, { kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }>
   >({})
   const [busy, setBusy] = useState<string | null>(null)
-  /** Hàng đợi chạy (giới hạn số acc song song) */
-  const [queue, setQueue] = useState<{ profileId: string; name: string; position: number }[]>([])
-  const [queueMax, setQueueMax] = useState(2)
+  /** Lệnh đang chờ của TỪNG acc (cùng acc chạy tuần tự) */
+  const [queue, setQueue] = useState<{ profileId: string; name: string; pending: number }[]>([])
+  /** Acc phải chờ slot (chỉ khi bật giới hạn tổng) */
+  const [waiting, setWaiting] = useState<{ profileId: string; name: string; position: number }[]>([])
+  /** 0 = không giới hạn tổng (các acc chạy song song) */
+  const [queueMax, setQueueMax] = useState(0)
   const [refreshing, setRefreshing] = useState<{ done: number; total: number } | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -80,11 +83,13 @@ export default function App(): React.JSX.Element {
     })
     void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
     void window.api.runQueue?.().then((q) => {
-      setQueue(q.queued)
+      setQueue(q.items)
+      setWaiting(q.waiting)
       setQueueMax(q.max)
     })
     const offQueue = window.api.onRunQueue?.((p) => {
       setQueue(p.items)
+      setWaiting(p.waiting)
       setQueueMax(p.max)
     })
     const offHealth = window.api.onHealthChanged?.(() => {
@@ -333,7 +338,7 @@ export default function App(): React.JSX.Element {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
-                  <span className="text-[12.5px]">Chạy song song (queue)</span>
+                  <span className="text-[12.5px]">Giới hạn tổng (tuỳ chọn)</span>
                   <select
                     className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
                     value={queueMax}
@@ -342,12 +347,17 @@ export default function App(): React.JSX.Element {
                       setQueueMax(v)
                       const next = await window.api.setSettings({ maxParallelRuns: v })
                       setSettingsState(next)
-                      toast.info('Chạy song song tối đa ' + v + ' tài khoản; các acc khác vào hàng đợi.')
+                      toast.info(
+                        v === 0
+                          ? 'Không giới hạn: các tài khoản chạy song song; cùng một acc thì chạy tuần tự.'
+                          : 'Tối đa ' + v + ' acc chạy song song; acc vượt hạn sẽ chờ slot.'
+                      )
                     }}
                   >
-                    {[1, 2, 3, 4, 5].map((n) => (
+                    <option value={0}>Không giới hạn</option>
+                    {[2, 3, 4, 5, 6].map((n) => (
                       <option key={n} value={n}>
-                        {n}
+                        {n} acc
                       </option>
                     ))}
                   </select>
@@ -465,15 +475,15 @@ export default function App(): React.JSX.Element {
         )}
 
 {/* Nut tron noi: so tai khoan dang chay + popover tien do (kieu badge upload cua Google Drive) */}
-        {runningRows.length > 0 || queue.length > 0 ? (
+        {runningRows.length > 0 || queue.length > 0 || waiting.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 data-slot="run-fab"
                 className="fixed bottom-[66px] right-5 z-40 flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:scale-[1.06]"
-                title={`${runningRows.length} đang chạy${queue.length ? ` · ${queue.length} đang chờ` : ''} (tối đa ${queueMax} song song) — bấm để xem tiến độ`}
-                aria-label={`${runningRows.length} tài khoản đang chạy${queue.length ? `, ${queue.length} đang chờ` : ''}`}
+                title={`${runningRows.length} acc đang chạy song song${queue.length ? ` · ${queue.reduce((s, q) => s + q.pending, 0)} lệnh đang chờ` : ''}${queueMax > 0 ? ` · giới hạn tổng ${queueMax}` : ' · không giới hạn tổng'} — bấm để xem tiến độ`}
+                aria-label={`${runningRows.length} tài khoản đang chạy${queue.length ? `, ${queue.reduce((s, q) => s + q.pending, 0)} lệnh đang chờ` : ''}`}
               >
                 <Loader2 className="size-5 animate-spin text-[var(--brand-blue-deep)]" />
                 <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[var(--error)] text-[11px] font-semibold text-white">
@@ -498,6 +508,11 @@ export default function App(): React.JSX.Element {
                       <div className="flex items-center gap-2">
                         <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
                         <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{r.profile.name}</span>
+                        {(queue.find((q) => q.profileId === r.id)?.pending ?? 0) > 0 ? (
+                          <span className="shrink-0 rounded bg-[var(--brand-blue-deep)]/10 px-1 text-[10.5px] font-semibold text-[var(--brand-blue-deep)]">
+                            +{queue.find((q) => q.profileId === r.id)?.pending} lệnh chờ
+                          </span>
+                        ) : null}
                         <span className="mm-tabular shrink-0 text-[12px] text-[var(--steel)]">
                           {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
                           {pr && pr.gained > 0 ? (
@@ -522,16 +537,31 @@ export default function App(): React.JSX.Element {
                 {queue.length > 0 ? (
                   <div className="mt-2 border-t border-[var(--hairline-soft)] pt-2">
                     <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
-                      Đang chờ ({queue.length}) — tối đa {queueMax} chạy song song
+                      Lệnh chờ của cùng acc ({queue.reduce((s, q) => s + q.pending, 0)})
                     </div>
                     {queue.map((q) => (
                       <div
                         key={q.profileId}
                         className="mb-1 flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1 last:mb-0"
                       >
-                        <span className="mm-tabular w-4 shrink-0 text-[11.5px] text-[var(--stone)]">{q.position}</span>
                         <span className="min-w-0 flex-1 truncate text-[12px]">{q.name}</span>
-                        <span className="shrink-0 text-[11.5px] text-[var(--stone)]">chờ</span>
+                        <span className="shrink-0 text-[11.5px] text-[var(--stone)]">{q.pending} lệnh chờ</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {waiting.length > 0 ? (
+                  <div className="mt-2 border-t border-[var(--hairline-soft)] pt-2">
+                    <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
+                      Chờ slot ({waiting.length}) — giới hạn tổng {queueMax}
+                    </div>
+                    {waiting.map((w) => (
+                      <div
+                        key={w.profileId}
+                        className="mb-1 flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1 last:mb-0"
+                      >
+                        <span className="mm-tabular w-4 shrink-0 text-[11.5px] text-[var(--stone)]">{w.position}</span>
+                        <span className="min-w-0 flex-1 truncate text-[12px]">{w.name}</span>
                       </div>
                     ))}
                   </div>

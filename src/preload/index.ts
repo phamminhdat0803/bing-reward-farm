@@ -108,15 +108,27 @@ const api = {
   },
   /** Hang doi chay (gioi han so job song song) */
   onRunQueue: (
-    cb: (p: { items: { profileId: string; name: string; position: number }[]; max: number }) => void
+    cb: (p: {
+      items: { profileId: string; name: string; pending: number }[]
+      waiting: { profileId: string; name: string; position: number }[]
+      max: number
+    }) => void
   ): (() => void) => {
-    const handler = (_e: unknown, p: { items: { profileId: string; name: string; position: number }[]; max: number }): void => cb(p)
+    const handler = (
+      _e: unknown,
+      p: {
+        items: { profileId: string; name: string; pending: number }[]
+        waiting: { profileId: string; name: string; position: number }[]
+        max: number
+      }
+    ): void => cb(p)
     ipcRenderer.on('run:queue', handler)
     return () => ipcRenderer.removeListener('run:queue', handler)
   },
   runQueue: (): Promise<{
     running: string[]
-    queued: { profileId: string; name: string; position: number }[]
+    items: { profileId: string; name: string; pending: number }[]
+    waiting: { profileId: string; name: string; position: number }[]
     max: number
   }> => ipcRenderer.invoke('run:queue'),
   onSnapshot: (cb: (snap: Snapshot) => void): (() => void) => {
