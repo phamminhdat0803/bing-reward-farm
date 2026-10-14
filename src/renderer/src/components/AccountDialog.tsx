@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState  } from 'react'
 import { Wifi } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -23,6 +23,22 @@ const FALLBACK: DetectedBrowser[] = [
   { id: 'chrome', name: 'Google Chrome', exe: '', version: null, chromium: true, autoSignInRisk: false }
 ]
 
+/** Lan chuot o bat ky dau trong modal cung cuon than dialog (khong phai tro dung vao vung cuon). */
+function useWheelToScroll(): {
+  ref: React.RefObject<HTMLDivElement | null>
+  onWheel: (e: React.WheelEvent) => void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const onWheel = (e: React.WheelEvent): void => {
+    const vp = ref.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement | null
+    if (!vp) return
+    const canScroll = vp.scrollHeight > vp.clientHeight + 1
+    if (!canScroll) return
+    vp.scrollTop += e.deltaY
+  }
+  return { ref, onWheel }
+}
+
 export function AccountDialog({
   open,
   onOpenChange,
@@ -37,6 +53,7 @@ export function AccountDialog({
   /** để hộp chọn proxy biết proxy nào đang gắn cho tài khoản nào */
   rows?: RowState[]
 }): React.JSX.Element {
+  const { ref: areaRef, onWheel } = useWheelToScroll()
   const [name, setName] = useState('')
   const [account, setAccount] = useState('')
   const [profileDir, setProfileDir] = useState('')
@@ -158,7 +175,7 @@ export function AccountDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* p-0 gap-0: padding dat o header/footer/content — ScrollArea sat mep dialog nen thanh cuon
           nam dung vien phai, khong bi le vao trong. flex! vi DialogContent cua shadcn co san `grid`. */}
-      <DialogContent className="z-[60] flex! h-[86vh] max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]">
+      <DialogContent onWheel={onWheel} className="z-[60] flex! h-[86vh] max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]">
         <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
           <DialogTitle className="text-[19px] leading-tight">
             {initial ? 'Sửa tài khoản' : 'Thêm tài khoản'}
@@ -168,7 +185,7 @@ export function AccountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea ref={areaRef} className="min-h-0 flex-1">
           <div className="space-y-4 px-5 py-4">
 
           {/* ---------- CƠ BẢN ---------- */}

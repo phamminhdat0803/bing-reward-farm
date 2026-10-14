@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState  } from 'react'
 import { Check } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -16,6 +16,22 @@ import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import type { ProxyItem, RowState } from '@shared/types'
 
 /** Gán 1 proxy cho nhiều tài khoản: tick tài khoản nào thì proxy này áp cho tài khoản đó. */
+/** Lan chuot o bat ky dau trong modal cung cuon than dialog (khong phai tro dung vao vung cuon). */
+function useWheelToScroll(): {
+  ref: React.RefObject<HTMLDivElement | null>
+  onWheel: (e: React.WheelEvent) => void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const onWheel = (e: React.WheelEvent): void => {
+    const vp = ref.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement | null
+    if (!vp) return
+    const canScroll = vp.scrollHeight > vp.clientHeight + 1
+    if (!canScroll) return
+    vp.scrollTop += e.deltaY
+  }
+  return { ref, onWheel }
+}
+
 export function AssignProxyDialog({
   open,
   onOpenChange,
@@ -32,6 +48,7 @@ export function AssignProxyDialog({
   /** danh sách id tài khoản sẽ dùng proxy này */
   onSave: (ids: string[]) => Promise<void>
 }): React.JSX.Element {
+  const { ref: areaRef, onWheel } = useWheelToScroll()
   const [selected, setSelected] = useState<string[] | null>(null)
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
@@ -66,7 +83,7 @@ export function AssignProxyDialog({
         onOpenChange(v)
       }}
     >
-      <DialogContent className="z-[70] flex! h-[70vh] max-h-[70vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]">
+      <DialogContent onWheel={onWheel} className="z-[70] flex! h-[70vh] max-h-[70vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]">
         <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
           <DialogTitle className="text-[19px] leading-tight">Gán tài khoản vào proxy</DialogTitle>
           <DialogDescription className="text-[12.5px]">
@@ -89,7 +106,7 @@ export function AssignProxyDialog({
           />
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea ref={areaRef} className="min-h-0 flex-1">
           <div className="p-2">
             {list.length === 0 ? (
               <div className="px-2.5 py-6 text-center text-[12.5px] text-[var(--steel)]">

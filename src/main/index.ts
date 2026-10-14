@@ -124,6 +124,77 @@ function createWindow(): void {
               }
             })()`)
             console.log(`[test-account] cuon: ${JSON.stringify(scroll)}`)
+
+            // Mo hop chon proxy tu dialog tai khoan roi do kha nang cuon
+            const picker = await wc.executeJavaScript(`(async () => {
+              const btns = Array.from(document.querySelectorAll('button'))
+              const card = btns.find((b) => /Chọn proxy/.test(b.textContent || ''))
+              if (!card) return { error: 'khong thay card Chon proxy' }
+              card.click()
+              await new Promise((r) => setTimeout(r, 900))
+              const dlg = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
+              const vp = dlg && dlg.querySelector('[data-slot="scroll-area-viewport"]')
+              const bar = dlg && dlg.querySelector('[data-slot="scroll-area-scrollbar"]')
+              const cs = dlg ? getComputedStyle(dlg) : null
+              const vpCs = vp ? getComputedStyle(vp) : null
+              return {
+                soDialog: document.querySelectorAll('[role="dialog"]').length,
+                display: cs ? cs.display : null,
+                dialogH: dlg ? Math.round(dlg.getBoundingClientRect().height) : 0,
+                coViewport: !!vp,
+                viewportH: vp ? Math.round(vp.getBoundingClientRect().height) : 0,
+                viewportOverflow: vpCs ? vpCs.overflow : null,
+                noiDungCao: vp ? vp.scrollHeight : 0,
+                cuonDuoc: vp ? vp.scrollHeight > vp.clientHeight + 4 : false,
+                thanhCuon: bar ? bar.getAttribute('data-state') : null
+              }
+            })()`)
+            console.log(`[test-account] picker: ${JSON.stringify(picker)}`)
+
+            // Thu lan chuot that (wheel) tren danh sach proxy xem co cuon khong
+            const wheel = await wc.executeJavaScript(`(async () => {
+              const dlg = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
+              const vp = dlg && dlg.querySelector('[data-slot="scroll-area-viewport"]')
+              if (!vp) return { error: 'khong thay viewport' }
+              const item = vp.querySelector('button') || vp
+              const r = item.getBoundingClientRect()
+              const before = vp.scrollTop
+              const ev = new WheelEvent('wheel', {
+                deltaY: 400, deltaMode: 0, bubbles: true, cancelable: true,
+                clientX: Math.round(r.left + 20), clientY: Math.round(r.top + 10)
+              })
+              item.dispatchEvent(ev)
+              await new Promise((r2) => setTimeout(r2, 500))
+              const afterEv = vp.scrollTop
+              vp.scrollTop = 300
+              await new Promise((r2) => setTimeout(r2, 200))
+              return { before, sauWheel: afterEv, sauKhiGanScrollTop: vp.scrollTop, wheelBiChan: afterEv === before }
+            })()`)
+            console.log(`[test-account] wheel: ${JSON.stringify(wheel)}`)
+
+            // Lan chuot THAT (Electron sendInputEvent) tai toa do danh sach proxy
+            const box = await wc.executeJavaScript(`(() => {
+              const dlg = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
+              const vp = dlg && dlg.querySelector('[data-slot="scroll-area-viewport"]')
+              if (!vp) return null
+              const r = dlg.getBoundingClientRect()
+              vp.scrollTop = 0
+              // tro vao VUNG HEADER (khong phai danh sach) de kiem tra co forward wheel khong
+              return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 22), before: vp.scrollTop }
+            })()`)
+            if (box) {
+              for (let i = 0; i < 6; i += 1) {
+                wc.sendInputEvent({ type: 'mouseWheel', x: box.x, y: box.y, deltaX: 0, deltaY: -120 })
+                await new Promise((r) => setTimeout(r, 120))
+              }
+              await new Promise((r) => setTimeout(r, 400))
+              const after = await wc.executeJavaScript(`(() => {
+                const dlg = Array.from(document.querySelectorAll('[role="dialog"]')).pop()
+                const vp = dlg && dlg.querySelector('[data-slot="scroll-area-viewport"]')
+                return vp ? vp.scrollTop : -1
+              })()`)
+              console.log(`[test-account] wheel that: truoc=${box.before} sau=${after} => ${after !== box.before ? 'CUON DUOC' : 'BI CHAN'}`)
+            }
           } catch (e) {
             console.error('[test-account] loi', e)
           }

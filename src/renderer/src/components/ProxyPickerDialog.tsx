@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState  } from 'react'
 import { ArrowUpDown, Check, Search, Wifi } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
@@ -30,6 +30,22 @@ const SORTS: Record<SortBy, string> = {
 }
 
 /** Hộp chọn proxy: tìm kiếm + sắp xếp + thấy proxy nào đang gắn cho tài khoản nào. */
+/** Lan chuot o bat ky dau trong modal cung cuon than dialog (khong phai tro dung vao vung cuon). */
+function useWheelToScroll(): {
+  ref: React.RefObject<HTMLDivElement | null>
+  onWheel: (e: React.WheelEvent) => void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const onWheel = (e: React.WheelEvent): void => {
+    const vp = ref.current?.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement | null
+    if (!vp) return
+    const canScroll = vp.scrollHeight > vp.clientHeight + 1
+    if (!canScroll) return
+    vp.scrollTop += e.deltaY
+  }
+  return { ref, onWheel }
+}
+
 export function ProxyPickerDialog({
   open,
   onOpenChange,
@@ -45,6 +61,7 @@ export function ProxyPickerDialog({
   value: string
   onPick: (id: string) => void
 }): React.JSX.Element {
+  const { ref: areaRef, onWheel } = useWheelToScroll()
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('latency-asc')
   const [onlyFree, setOnlyFree] = useState(false)
@@ -87,7 +104,7 @@ export function ProxyPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="z-[70] flex! h-[80vh] max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
+      <DialogContent onWheel={onWheel} className="z-[70] flex! h-[80vh] max-h-[80vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
         <DialogHeader className="shrink-0 border-b border-[var(--hairline-soft)] px-5 py-3.5 pr-12 text-left">
           <DialogTitle className="text-[19px] leading-tight">Chọn proxy</DialogTitle>
           <DialogDescription className="text-[12.5px]">
@@ -131,7 +148,7 @@ export function ProxyPickerDialog({
           </Button>
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
+        <ScrollArea ref={areaRef} className="min-h-0 flex-1">
           <div className="p-2">
             <button
               type="button"
