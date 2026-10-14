@@ -19,6 +19,7 @@ import { browserState, closeBrowser, markRun } from './browsers'
 import { withProfileLock } from './lock'
 import { logDir, stateFile, updateProfile, type Profile } from './profiles'
 import { clearActiveChain, preflightChain, resolveProxyChain, resolveProxyUrl, setActiveChain } from './proxies'
+import { getSettings } from './settings'
 
 export type Snapshot = {
   profileId: string
@@ -311,20 +312,28 @@ export async function startRun(
         const { live, dead } = await preflightChain(chainAll)
         for (const d of dead) log.warn(`[proxy] chet: ${d.proxy} - ${d.error ?? 'khong ro'}`)
         if (live.length === 0) {
-          log.error(
-            `[proxy] DUNG profile: ca ${chainAll.length} proxy deu chet - khong fallback DIRECT (no-direct dang BAT)`
+          const noDirect = getSettings().noDirectFallback !== false
+          if (noDirect) {
+            log.error(
+              `[proxy] DUNG profile: ca ${chainAll.length} proxy deu chet - KHONG fallback DIRECT (no-direct dang BAT, doi trong Cai dat)`
+            )
+            hooks.onStatusChange?.(profile.id, false)
+            jobs.delete(profile.id)
+            return
+          }
+          log.warn(
+            `[proxy] ca ${chainAll.length} proxy deu chet nhung no-direct dang TAT -> chay bang IP cua may (khong khuyen nghi)`
           )
-          hooks.onStatusChange?.(profile.id, false)
-          jobs.delete(profile.id)
-          return
-        }
+          setActiveChain(profile.id, []) // chain rong = khong dung proxy nao cho lan chay nay
+        } else {
         log.info(`[proxy] chain ${live.length}/${chainAll.length} proxy song: ${live.join(' , ')}`)
         // Chain thuc te cho lan launch nay: bo proxy chet, proxy song dau tien len lam chinh
         setActiveChain(profile.id, live)
-        if (live.length !== chainAll.length) {
-          const oldMain = resolveProxyUrl(profile)
-          updateProfile(profile.id, { proxyId: null, proxy: live[0], proxyFallbacks: live.slice(1) })
-          log.info(`[proxy] doi proxy chinh: ${oldMain ?? '(khong)'} -> ${live[0]}`)
+          if (live.length !== chainAll.length) {
+            const oldMain = resolveProxyUrl(profile)
+            updateProfile(profile.id, { proxyId: null, proxy: live[0], proxyFallbacks: live.slice(1) })
+            log.info(`[proxy] doi proxy chinh: ${oldMain ?? '(khong)'} -> ${live[0]}`)
+          }
         }
       }
 

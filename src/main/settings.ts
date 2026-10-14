@@ -8,9 +8,14 @@ export type Settings = {
   autoRefreshOnNewDay: boolean
   /** So giay cho giua 2 profile khi cap nhat hang loat */
   refreshGapMs: number
+  /**
+   * BAT = khi toan bo proxy deu chet thi DUNG profile, khong bao gio roi ve mang that (DIRECT).
+   * TAT = cho phep chay truc tiep bang IP cua may khi het proxy (khong khuyen nghi).
+   */
+  noDirectFallback: boolean
 }
 
-const DEFAULTS: Settings = { autoRefreshOnNewDay: true, refreshGapMs: 2000 }
+const DEFAULTS: Settings = { autoRefreshOnNewDay: true, refreshGapMs: 2000, noDirectFallback: true }
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')
 

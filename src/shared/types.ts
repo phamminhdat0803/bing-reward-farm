@@ -88,6 +88,8 @@ export type RowState = {
 }
 
 export type AppSettings = {
+  /** true = het proxy thi dung profile, khong fallback DIRECT (mac dinh) */
+  noDirectFallback?: boolean
   autoRefreshOnNewDay: boolean
   refreshGapMs: number
 }

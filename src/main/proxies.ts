@@ -101,7 +101,7 @@ export function resolveProxyChain(profile: {
   proxyFallbacks?: string[] | null
 }): string[] {
   const id = (profile as { id?: string }).id
-  if (id && chainOverride[id]?.length) return chainOverride[id]
+  if (id && chainOverride[id] !== undefined) return chainOverride[id]
   const out: string[] = []
   const main = resolveProxyUrl(profile)
   if (main) out.push(main)
