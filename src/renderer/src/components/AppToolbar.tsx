@@ -105,7 +105,7 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
               <ChevronDown className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuContent align="start" className="min-w-[240px]">
             <DropdownMenuItem onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])} className="gap-2">
               <Play className="size-3.5" /> Chạy tất cả (Full)
             </DropdownMenuItem>
@@ -186,7 +186,7 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
             <MoreHorizontal className="size-3.5" /> Thao tác khác <ChevronDown className="size-3 text-[var(--stone)]" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-48">
+        <DropdownMenuContent align="start" className="min-w-[200px]">
           <DropdownMenuItem disabled={p.selectedCount !== 1} onClick={p.onEdit} className="gap-2">
             <Pencil className="size-3.5" /> Sửa tài khoản
           </DropdownMenuItem>

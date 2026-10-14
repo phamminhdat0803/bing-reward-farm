@@ -412,7 +412,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               <ChevronDown className="size-3.5 text-[var(--stone)]" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
+          <DropdownMenuContent align="start" className="min-w-[270px]">
             {(Object.keys(sortLabels) as SortBy[]).map((k) => (
               <DropdownMenuItem key={k} className="gap-2" onClick={() => setSortBy(k)}>
                 {sortBy === k ? <Check className="size-3.5" /> : <span className="size-3.5" />}
@@ -453,7 +453,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               <ChevronDown className="size-3 text-[var(--stone)]" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuContent align="start" className="min-w-[200px]">
             <DropdownMenuItem onClick={() => setStatusFilter('all')}>Tất cả ({items.length})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter('ok')} className="gap-1.5">
               <Badge variant="success" className="px-1 py-0 text-[10px]">
@@ -483,7 +483,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               <ChevronDown className="size-3 text-[var(--stone)]" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
+          <DropdownMenuContent align="start" className="min-w-[176px]">
             <DropdownMenuItem onClick={() => setProtocolFilter('all')}>
               Tất cả giao thức ({items.length})
             </DropdownMenuItem>
@@ -503,7 +503,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               <ChevronDown className="size-3 text-[var(--stone)]" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
+          <DropdownMenuContent align="start" className="min-w-[176px]">
             <DropdownMenuItem onClick={() => setUsageFilter('all')}>Tất cả ({items.length})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setUsageFilter('used')}>Đang dùng ({counts.used})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setUsageFilter('unused')}>Chưa gắn ({counts.unused})</DropdownMenuItem>
@@ -682,7 +682,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                         </TableRow>
                       </ContextMenuTrigger>
 
-                      <ContextMenuContent className="w-56">
+                      <ContextMenuContent className="min-w-[240px]">
                         <ContextMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
                           {p.label}
                         </ContextMenuLabel>

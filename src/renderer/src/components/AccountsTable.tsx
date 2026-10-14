@@ -378,7 +378,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
                               <Play className="size-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-52" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuContent align="end" className="min-w-[220px]" onClick={(e) => e.stopPropagation()}>
                             <DropdownMenuItem
                               onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
                               className="gap-2"
@@ -406,7 +406,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     </TableRow>
                   </ContextMenuTrigger>
 
-                  <ContextMenuContent className="w-60">
+                  <ContextMenuContent className="min-w-[250px]">
                     <ContextMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
                       {multi ? `${p.selectedIds.length} tài khoản đang chọn` : row.profile.name}
                     </ContextMenuLabel>

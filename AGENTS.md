@@ -31,6 +31,12 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 
 ## Sửa lỗi + tính năng 2026-10-14
 
+- **Nhãn menu/popover bị xuống dòng** (vd "Chỉ Kiếm thêm (Keep earning)" thành 2 hàng khi mở):
+  `ui/dropdown-menu.tsx` + `ui/context-menu.tsx` thiếu `whitespace-nowrap`, và các menu đặt **width cứng**
+  (`w-48/52/56/60/64`) nên nhãn dài bị bẻ dòng. Sửa: thêm `whitespace-nowrap` cho Item/Checkbox/Radio/SubTrigger/Label
+  (đồng thời style theo token MiniMax) và đổi width cứng → `min-w-[...]` để menu tự giãn.
+  Kiểm chứng (`BRF_OPEN_MENU='button[title="Tuỳ chọn chức năng chạy"]'`): cả 5 mục đều `h=32px`, 1 hàng.
+
 - **Dùng `ScrollArea` (shadcn/Radix) thay cuộn native**: `ui/table.tsx` render bảng trong `ScrollArea` +
   `ScrollBar orientation="horizontal"`; `LogDock`, `AccountDrawer` (thân + log) cũng chuyển sang ScrollArea.
   - Radix mặc định `type="hover"` ⇒ thanh cuộn **chỉ hiện khi rê chuột** (thậm chí không render). Đặt

@@ -148,6 +148,39 @@ function createWindow(): void {
     })()
   }
 
+  // Tien ich dev: BRF_OPEN_MENU=<selector> -> tu bam 1 nut de mo menu/popover (kiem tra nhan khong bi xuong dong)
+  if (process.env.BRF_OPEN_MENU) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          try {
+            const r = await wc.executeJavaScript(`(async () => {
+              const el = document.querySelector(${JSON.stringify(process.env.BRF_OPEN_MENU)})
+              if (!el) return 'khong thay nut'
+              // Radix mo menu bang pointerdown, .click() khong du
+              el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }))
+              el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, buttons: 1 }))
+              el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0 }))
+              el.click()
+              await new Promise((r) => setTimeout(r, 1200))
+              const items = Array.from(document.querySelectorAll('[role="menuitem"], [role="menu"] [data-slot$="-item"]'))
+              return items.map((i) => ({
+                text: (i.textContent || '').trim().slice(0, 60),
+                h: Math.round(i.getBoundingClientRect().height),
+                lines: Math.round(i.getBoundingClientRect().height / 30)
+              }))
+            })()`)
+            console.log(`[open-menu] ${JSON.stringify(r)}`)
+          } catch (e) {
+            console.error('[open-menu] loi', e)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 8000))
+    })
+  }
+
   // Tien ich dev: BRF_TEST_STICKY=1 -> cuon bang roi do xem thead co dinh khong
   if (process.env.BRF_TEST_STICKY) {
     mainWindow.webContents.once('did-finish-load', () => {

@@ -228,7 +228,7 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                           <ChevronDown className="size-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-52">
+                      <DropdownMenuContent align="start" className="min-w-[220px]">
                         <DropdownMenuItem
                           onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
                           className="gap-2"
