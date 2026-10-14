@@ -10,7 +10,13 @@ function Table({
 }: React.ComponentProps<'table'> & { containerClassName?: string }): React.JSX.Element {
   return (
     <div data-slot="table-container" className={cn('relative w-full min-h-0 flex-1 overflow-auto', containerClassName)}>
-      <table data-slot="table" className={cn('w-full caption-bottom border-collapse text-sm', className)} {...props} />
+      {/* border-separate: BAT BUOC de thead sticky chay duoc tren Chrome
+          (border-collapse lam position:sticky tren <thead>/<th> bi vo hieu) */}
+      <table
+        data-slot="table"
+        className={cn('w-full caption-bottom border-separate border-spacing-0 text-sm', className)}
+        {...props}
+      />
     </div>
   )
 }
@@ -19,7 +25,7 @@ function TableHeader({ className, ...props }: React.ComponentProps<'thead'>): Re
   return (
     <thead
       data-slot="table-header"
-      className={cn('sticky top-0 z-10 bg-[var(--surface)] shadow-[0_1px_0_0_var(--hairline)]', className)}
+      className={cn('sticky top-0 z-20 bg-[var(--surface)] shadow-[0_1px_0_0_var(--hairline)]', className)}
       {...props}
     />
   )
@@ -44,7 +50,8 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>): React.JS
     <tr
       data-slot="table-row"
       className={cn(
-        'border-b border-[var(--hairline-soft)] transition-colors last:border-0 hover:bg-[var(--surface)] data-[state=selected]:bg-[var(--surface)]',
+        // border-collapse da tat -> ke duong ke bang border tren tung o
+        'transition-colors hover:bg-[var(--surface)] data-[state=selected]:bg-[var(--surface)] [&>td]:border-b [&>td]:border-[var(--hairline-soft)] [&>th]:border-b [&>th]:border-[var(--hairline-soft)] [&:last-child>td]:border-b-0',
         className
       )}
       {...props}

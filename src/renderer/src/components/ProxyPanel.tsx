@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  ArrowUpDown,
+  Check,
   ChevronDown,
   ClipboardPaste,
   Filter,
@@ -41,6 +43,15 @@ import type { ProxyItem, RowState } from '@shared/types'
 type StatusFilter = 'all' | 'ok' | 'error' | 'untested'
 type ProtocolFilter = 'all' | 'socks5' | 'socks4' | 'http'
 type UsageFilter = 'all' | 'used' | 'unused'
+type SortBy = 'default' | 'latency-asc' | 'latency-desc' | 'label' | 'tested'
+
+const sortLabels: Record<SortBy, string> = {
+  default: 'Mặc định (thứ tự thêm)',
+  'latency-asc': 'Độ trễ tăng dần (nhanh nhất trước)',
+  'latency-desc': 'Độ trễ giảm dần',
+  label: 'Tên A → Z',
+  tested: 'Vừa test gần đây'
+}
 
 const statusLabels: Record<StatusFilter, string> = {
   all: 'Tất cả',
@@ -85,6 +96,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [protocolFilter, setProtocolFilter] = useState<ProtocolFilter>('all')
   const [usageFilter, setUsageFilter] = useState<UsageFilter>('all')
+  const [sortBy, setSortBy] = useState<SortBy>('default')
 
   const reload = async (): Promise<void> => {
     const list = await window.api.listProxies()
@@ -198,6 +210,23 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
     })
   }, [items, search, statusFilter, protocolFilter, usageFilter, rows])
 
+  // Sap xep: mac dinh theo thu tu them vao; ho tro sort theo do tre (reply delay)
+  const sortedItems = useMemo(() => {
+    const arr = [...filteredItems]
+    const lat = (p: ProxyItem): number => (p.lastTest?.ok && p.lastTest.latency != null ? p.lastTest.latency : Number.POSITIVE_INFINITY)
+    if (sortBy === 'latency-asc') arr.sort((a, b) => lat(a) - lat(b))
+    else if (sortBy === 'latency-desc') arr.sort((a, b) => {
+      const la = lat(a)
+      const lb = lat(b)
+      if (la === Number.POSITIVE_INFINITY) return 1
+      if (lb === Number.POSITIVE_INFINITY) return -1
+      return lb - la
+    })
+    else if (sortBy === 'label') arr.sort((a, b) => a.label.localeCompare(b.label))
+    else if (sortBy === 'tested') arr.sort((a, b) => (b.lastTest?.at ?? '').localeCompare(a.lastTest?.at ?? ''))
+    return arr
+  }, [filteredItems, sortBy])
+
   const hasActiveFilter =
     search.trim() !== '' || statusFilter !== 'all' || protocolFilter !== 'all' || usageFilter !== 'all'
 
@@ -210,7 +239,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
 
   // Chọn tất cả / bỏ chọn các proxy đang hiển thị
   const toggleSelectAll = (): void => {
-    const visibleIds = filteredItems.map((p) => p.id)
+    const visibleIds = sortedItems.map((p) => p.id)
     const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))
     if (allVisibleSelected) {
       setSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
@@ -375,6 +404,24 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
 
       {/* Thanh bộ lọc */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--hairline-soft)] bg-[var(--surface)]/30 px-3 py-1.5">
+        {/* Sắp xếp theo độ trễ (reply delay) */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]">
+              <ArrowUpDown className="size-3.5" /> Sắp xếp: {sortLabels[sortBy].split(' (')[0]}
+              <ChevronDown className="size-3.5 text-[var(--stone)]" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            {(Object.keys(sortLabels) as SortBy[]).map((k) => (
+              <DropdownMenuItem key={k} className="gap-2" onClick={() => setSortBy(k)}>
+                {sortBy === k ? <Check className="size-3.5" /> : <span className="size-3.5" />}
+                {sortLabels[k]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--stone)]" />
           <Input
@@ -483,8 +530,9 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
 
       {/* Bảng danh sách proxy */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Table className="min-w-[1140px] table-fixed">
+        {/* Table tu tao vung cuon (overflow-auto) — khong boc them div overflow nua,
+            neu khong thead sticky se khong dinh */}
+        <Table className="min-w-[1140px] table-fixed">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 190 }} />
@@ -534,7 +582,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredItems.map((p) => {
+                sortedItems.map((p) => {
                   const users = usersOf(p.id)
                   const t = p.lastTest
                   const selected = selectedIds.includes(p.id)
@@ -674,7 +722,6 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               )}
             </TableBody>
           </Table>
-        </div>
       </div>
 
       {/* Dòng trạng thái đáy bảng */}
@@ -682,6 +729,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
         <span>
           {filteredItems.length} proxy{hasActiveFilter ? ` (đã lọc từ ${items.length})` : ''} ·{' '}
           {counts.ok} hoạt động · {counts.error} lỗi · {counts.untested} chưa test
+          {sortBy !== 'default' ? ` · sắp xếp: ${sortLabels[sortBy].split(' (')[0]}` : ''}
         </span>
         <span>
           {rows.filter((r) => r.profile.proxyId).length} tài khoản đang gắn proxy

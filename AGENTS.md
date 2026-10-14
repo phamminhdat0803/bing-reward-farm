@@ -31,6 +31,15 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 
 ## Sửa lỗi + tính năng 2026-10-14
 
+- **Sticky header bảng**: `ui/table.tsx` để `border-collapse` ⇒ Chrome **vô hiệu hoá `position: sticky`** trên
+  `<thead>/<th>`. Sửa thành `border-separate border-spacing-0` (đường kẻ chuyển sang `[&>td]:border-b`).
+  Đồng thời `ProxyPanel` bỏ lớp `div.overflow-auto` bọc ngoài `<Table>` (2 lớp cuộn ⇒ sticky không dính).
+  Kiểm chứng (`BRF_TEST_STICKY=1` trên tab Proxy): cuộn `scrollTop=500` (nội dung 2987px, khung 720px),
+  header lệch **0px** so với đỉnh khung.
+- **Sort proxy theo độ trễ (reply delay)**: `ProxyPanel` có state `sortBy` + dropdown **Sắp xếp**:
+  *Mặc định · Độ trễ tăng dần · Độ trễ giảm dần · Tên A→Z · Vừa test gần đây*; proxy lỗi/chưa test luôn xếp cuối
+  khi sort theo độ trễ. Trạng thái sort hiện ở dòng đáy bảng.
+
 - **Chip "proxy đã xoá" sai (3 acc đang gán proxy thật)**: bản pull về làm `App.tsx` chỉ `setProxyCount(...)` mà
   **quên `setProxies(...)`** ⇒ `proxyLabels` rỗng ⇒ chip nào cũng hiện "proxy đã xoá". Sửa: set cả hai.
   (Kiểm tra nhanh: `profiles.json.profile.proxyId` phải khớp `proxies.json.items[].id`.)

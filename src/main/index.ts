@@ -148,6 +148,33 @@ function createWindow(): void {
     })()
   }
 
+  // Tien ich dev: BRF_TEST_STICKY=1 -> cuon bang roi do xem thead co dinh khong
+  if (process.env.BRF_TEST_STICKY) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          try {
+            const r = await wc.executeJavaScript(`(async () => {
+              const box = document.querySelector('[data-slot="table-container"]')
+              const th = document.querySelector('[data-slot="table-head"]')
+              if (!box || !th) return { error: 'khong thay bang' }
+              const before = Math.round(th.getBoundingClientRect().top - box.getBoundingClientRect().top)
+              box.scrollTop = 500
+              await new Promise((r) => setTimeout(r, 400))
+              const after = Math.round(th.getBoundingClientRect().top - box.getBoundingClientRect().top)
+              return { scrollTop: box.scrollTop, scrollHeight: box.scrollHeight, clientHeight: box.clientHeight, lechTruoc: before, lechSau: after }
+            })()`)
+            console.log(`[test-sticky] ${JSON.stringify(r)}`)
+          } catch (e) {
+            console.error('[test-sticky] loi', e)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 9000))
+    })
+  }
+
   // Tien ich dev: BRF_TEST_DRAWER=1 -> tu bam lan luot cac dong trong bang va bao trang thai drawer
   // (de kiem chung loi "bam dong 2 la tat drawer")
   if (process.env.BRF_TEST_DRAWER) {
