@@ -124,6 +124,16 @@ export default function App(): React.JSX.Element {
       void reload()
     })
     const offRunProg = window.api.onRunProgress((p) => setProgress((prev) => ({ ...prev, [p.profileId]: p })))
+    const offBrowser = window.api.onBrowserState?.((p) => {
+      // Nguoi dung dong cua so trinh duyet -> xoa tien do cua acc do va tai lai bang
+      setProgress((prev) => {
+        if (!(p.profileId in prev)) return prev
+        const next = { ...prev }
+        delete next[p.profileId]
+        return next
+      })
+      void reload()
+    })
     const timer = window.setInterval(() => void reload(), 60000)
     return () => {
       offLog()
@@ -131,6 +141,7 @@ export default function App(): React.JSX.Element {
       offProg()
       offRun()
       offRunProg()
+      offBrowser?.()
       offQueue?.()
       offHealth?.()
       window.clearInterval(healthTimer)

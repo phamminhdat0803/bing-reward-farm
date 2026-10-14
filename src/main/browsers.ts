@@ -41,14 +41,34 @@ export async function ensurePort(profile: Profile): Promise<number> {
   return port
 }
 
+/** Tien trinh con song khong (chi la kiem tra phu). */
+function pidAlive(pid: number | null): boolean {
+  if (!pid) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function browserState(profile: Profile): Promise<BrowserState> {
   const mem = running.get(profile.id)
-  if (mem && mem.pid) {
-    try {
-      process.kill(mem.pid, 0)
-      return { ...mem, running: true }
-    } catch {
-      running.delete(profile.id)
+  if (mem?.running) {
+    // QUAN TRONG: chi kiem tra pid la SAI — nguoi dung bam X dong cua so nhung Edge van giu
+    // tien trinh nen (background mode) => app tuong browser con mo.
+    // Cong CDP tat di moi la bang chung that rang cua so da dong.
+    const port = mem.port ?? profile.cdpPort ?? 0
+    if (port > 0 && (await cdpAlive(port))) return { ...mem, running: true }
+    if (pidAlive(mem.pid) && port > 0 && (await cdpAlive(port))) return { ...mem, running: true }
+    running.delete(profile.id)
+    return {
+      running: false,
+      pid: null,
+      cdpUrl: null,
+      port: profile.cdpPort ?? null,
+      startedAt: null,
+      managed: false
     }
   }
   // Co the trinh duyet do nguoi dung tu mo (hoac con song sau khi app tat)
@@ -127,6 +147,23 @@ export async function closeBrowser(profileId: string): Promise<{ ok: boolean }> 
     child.on('error', () => resolve())
   })
   return { ok: true }
+}
+
+/**
+ * Kiem tra lai cac browser dang duoc coi la mo (dinh ky tu index.ts).
+ * Tra ve danh sach vua phat hien DA DONG (CDP tat) de UI cap nhat ngay.
+ */
+export async function verifyRunningBrowsers(profiles: Profile[]): Promise<{ id: string; name: string }[]> {
+  const closed: { id: string; name: string }[] = []
+  for (const p of profiles) {
+    const mem = running.get(p.id)
+    if (!mem?.running) continue
+    const port = mem.port ?? p.cdpPort ?? 0
+    if (port > 0 && (await cdpAlive(port))) continue
+    running.delete(p.id)
+    closed.push({ id: p.id, name: p.name })
+  }
+  return closed
 }
 
 export function markRun(profileId: string): void {

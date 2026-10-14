@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
-import { browserState, closeBrowser, openBrowser } from './browsers'
+import { browserState, closeBrowser, openBrowser, verifyRunningBrowsers } from './browsers'
 import { openLoginWindow, queueView, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
@@ -523,6 +523,18 @@ process.on('uncaughtException', (err) => ghiCrashLog('uncaughtException', err))
 process.on('unhandledRejection', (reason) => ghiCrashLog('unhandledRejection', reason))
 
 startHealthLoop({ everyMs: 45000, concurrency: 4 })
+
+// Nguoi dung bam X dong cua so trinh duyet -> phat hien trong ~8s va cap nhat lai bang
+setInterval(() => {
+  void verifyRunningBrowsers(loadStore().profiles)
+    .then((closed) => {
+      for (const c of closed) {
+        console.log('[browser] ' + c.name + ' da dong (cong CDP tat) -> cap nhat trang thai')
+        broadcast('browser:state', { profileId: c.id, running: false })
+      }
+    })
+    .catch(() => {})
+}, 8000)
 
 app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardfarm')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))

@@ -131,6 +131,12 @@ const api = {
     waiting: { profileId: string; name: string; position: number }[]
     max: number
   }> => ipcRenderer.invoke('run:queue'),
+  /** Trang thai trinh duyet thay doi (vd nguoi dung dong cua so) */
+  onBrowserState: (cb: (p: { profileId: string; running: boolean }) => void): (() => void) => {
+    const handler = (_e: unknown, p: { profileId: string; running: boolean }): void => cb(p)
+    ipcRenderer.on('browser:state', handler)
+    return () => ipcRenderer.removeListener('browser:state', handler)
+  },
   onSnapshot: (cb: (snap: Snapshot) => void): (() => void) => {
     const handler = (_e: unknown, snap: Snapshot): void => cb(snap)
     ipcRenderer.on('rewards:snapshot', handler)
