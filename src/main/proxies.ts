@@ -38,6 +38,16 @@ function slug(label: string): string {
   )
 }
 
+/** Trang thai suc khoe da do, tra theo proxyId (cho UI hien proxy dang dung + IP ra). */
+export function getHealthById(): Record<string, ProxyHealth> {
+  const res: Record<string, ProxyHealth> = {}
+  for (const p of listProxies()) {
+    const h = healthCache[p.url]
+    if (h) res[p.id] = h
+  }
+  return res
+}
+
 export function listProxies(): ProxyItem[] {
   return load().items
 }

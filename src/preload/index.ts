@@ -52,6 +52,10 @@ const api = {
   testSavedProxy: (id: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxies:test', id),
   testAllProxies: (filterIds?: string[]): Promise<Record<string, ProxyTestResult>> =>
     ipcRenderer.invoke('proxies:testAll', filterIds),
+  /** Trang thai suc khoe proxy da do (key = proxyId) */
+  proxyHealth: (): Promise<
+    Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string; checkedAt: string }>
+  > => ipcRenderer.invoke('proxies:health'),
   /** Dò các trình duyệt đang cài trên máy */
   detectBrowsers: (force = false): Promise<DetectedBrowser[]> => ipcRenderer.invoke('browsers:detect', force),
 

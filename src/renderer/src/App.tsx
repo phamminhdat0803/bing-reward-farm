@@ -41,6 +41,10 @@ export default function App(): React.JSX.Element {
   )
   const [proxyCount, setProxyCount] = useState(0)
   const [proxies, setProxies] = useState<ProxyItem[]>([])
+  /** proxyId -> suc khoe proxy (de hien IP ra / trang thai ngay tren bang) */
+  const [proxyHealth, setProxyHealth] = useState<
+    Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string; checkedAt: string }>
+  >({})
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   const activeRow = useMemo(() => rows.find((r) => r.id === activeId) ?? null, [rows, activeId])
@@ -70,6 +74,11 @@ export default function App(): React.JSX.Element {
       setProxyCount(l.length)
       setProxies(l)
     })
+    void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
+    const healthTimer = window.setInterval(
+      () => void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {}),
+      30000
+    )
     const offLog = window.api.onLog((line) => setLogs((prev) => [...prev.slice(-400), line]))
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
@@ -82,6 +91,7 @@ export default function App(): React.JSX.Element {
       offProg()
       offRun()
       offRunProg()
+      window.clearInterval(healthTimer)
       window.clearInterval(timer)
     }
   }, [reload])
@@ -388,6 +398,7 @@ export default function App(): React.JSX.Element {
               }}
               onStop={(id) => void stopRunSingle(id)}
               proxyLabels={Object.fromEntries(proxies.map((p) => [p.id, p.label]))}
+              proxyHealth={proxyHealth}
               onEdit={(id) => {
                 const r = rows.find((x) => x.id === id)
                 if (r) openAccountDialog(r.profile)

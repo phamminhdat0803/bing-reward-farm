@@ -8,7 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, listProxies, removeProxy, removeProxies, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -609,6 +609,7 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   })
   ipcMain.handle('proxies:test', (_e, id) => testAndSave(id))
   ipcMain.handle('proxies:testAll', (_e, filterIds?: string[]) => testAll(6, filterIds))
+  ipcMain.handle('proxies:health', () => getHealthById())
 
   createWindow()
 

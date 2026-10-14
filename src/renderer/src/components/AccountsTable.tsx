@@ -52,6 +52,8 @@ type Props = {
   onStop: (id: string) => void
   /** id proxy -> tên gợi nhớ, để chip proxy hiển thị tên thay vì chuỗi dài */
   proxyLabels?: Record<string, string>
+  /** proxyId -> suc khoe proxy (live / blocks-bing / dead) */
+  proxyHealth?: Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string }>
   onEdit?: (id: string) => void
   onRemove?: (id: string) => void
   onSignOut?: (id: string) => void
@@ -268,19 +270,33 @@ export function AccountsTable(p: Props): React.JSX.Element {
                         {row.profile.name}
                       </span>
                       {row.profile.proxyId || row.profile.proxy ? (
-                        <span
-                          className="max-w-[110px] shrink-0 truncate rounded bg-[var(--surface-soft)] px-1 text-[11px] font-medium text-[var(--brand-blue-deep)]"
-                          title={
-                            row.profile.proxyId
-                              ? `proxy: ${p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId}`
-                              : (row.profile.proxy ?? '')
-                          }
-                        >
-                          🌐{' '}
-                          {row.profile.proxyId
-                            ? (p.proxyLabels?.[row.profile.proxyId] ?? 'proxy đã xoá')
-                            : cleanProxyDisplay(row.profile.proxy ?? '')}
-                        </span>
+                        (() => {
+                          const h = row.profile.proxyId ? p.proxyHealth?.[row.profile.proxyId] : null
+                          const color =
+                            h?.status === 'live'
+                              ? 'bg-[var(--success-text)]'
+                              : h?.status === 'blocks-bing'
+                                ? 'bg-[#b45309]'
+                                : h?.status === 'dead'
+                                  ? 'bg-[var(--error)]'
+                                  : 'bg-[var(--stone)]'
+                          const detail = h
+                            ? `${h.status === 'live' ? 'OK' : h.status === 'blocks-bing' ? 'song nhung CHAN BING' : 'chet'}` +
+                              `${h.ip ? ` · IP ${h.ip}` : ''}${h.country ? ` (${h.country})` : ''}` +
+                              `${h.latency != null ? ` · ${h.latency}ms` : ''}${h.error ? ` · ${h.error}` : ''}`
+                            : 'chua do suc khoe proxy'
+                          return (
+                            <span
+                              className="flex max-w-[130px] shrink-0 items-center gap-1 truncate rounded bg-[var(--surface-soft)] px-1 text-[11px] font-medium text-[var(--brand-blue-deep)]"
+                              title={`proxy: ${row.profile.proxyId ? (p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId) : (row.profile.proxy ?? '')}\n${detail}`}
+                            >
+                              <span className={`size-1.5 shrink-0 rounded-full ${color}`} />
+                              {row.profile.proxyId
+                                ? (p.proxyLabels?.[row.profile.proxyId] ?? 'proxy đã xoá')
+                                : cleanProxyDisplay(row.profile.proxy ?? '')}
+                            </span>
+                          )
+                        })()
                       ) : null}
                     </div>
                     <div
