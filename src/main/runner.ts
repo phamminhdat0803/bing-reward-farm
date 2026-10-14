@@ -14,7 +14,7 @@ import { createLogger, sleep } from './core/logger'
 import { EARN_URL, readBreakdown, readCounters } from './core/rewards'
 import { runSearchPass } from './core/search'
 import { dayRecord, loadState, rememberQuery, saveState, todayKey, usedQuerySet } from './core/state'
-import { DEFAULTS, type CoreConfig, type Logger, type LogLine } from './core/types'
+import { DEFAULTS, type CoreConfig, type Logger, type LogLine, type SearchProgress } from './core/types'
 import { browserState, closeBrowser, markRun } from './browsers'
 import { withProfileLock } from './lock'
 import { logDir, stateFile, type Profile } from './profiles'
@@ -293,6 +293,7 @@ export async function startRun(
     onLine?: (l: LogLine) => void
     onSnapshot?: (s: Snapshot) => void
     onStatusChange?: (profileId: string, running: boolean) => void
+    onProgress?: (p: SearchProgress & { profileId: string }) => void
   } = {}
 ): Promise<{ ok: boolean; runId?: string; error?: string }> {
   if (jobs.has(profile.id)) return { ok: false, error: 'profile nay dang chay' }
@@ -410,7 +411,8 @@ export async function startRun(
                 target: desktopTarget,
                 nextQuery,
                 rememberQuery: (q) => rememberQuery(rec, q),
-                shouldStop
+                shouldStop,
+                onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id })
               })
               rec.desktop = {
                 searches: (summary.desktop as { searches: number }).searches,
@@ -493,6 +495,7 @@ export async function startRun(
             nextQuery,
             rememberQuery: (q) => rememberQuery(rec, q),
             shouldStop,
+            onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id }),
             preparePage: kind === 'cdp' ? (p) => newDeviceSession(p).then(() => undefined) : undefined
           })
           rec.mobile = {

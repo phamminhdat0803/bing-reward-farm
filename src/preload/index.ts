@@ -88,6 +88,14 @@ const api = {
     ipcRenderer.on('run:status', handler)
     return () => ipcRenderer.removeListener('run:status', handler)
   },
+  /** Tien do trong luc search (moi search 1 lan) */
+  onRunProgress: (
+    cb: (p: { profileId: string; kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }) => void
+  ): (() => void) => {
+    const handler = (_e: unknown, p: never): void => cb(p)
+    ipcRenderer.on('run:progress', handler)
+    return () => ipcRenderer.removeListener('run:progress', handler)
+  },
   onSnapshot: (cb: (snap: Snapshot) => void): (() => void) => {
     const handler = (_e: unknown, snap: Snapshot): void => cb(snap)
     ipcRenderer.on('rewards:snapshot', handler)

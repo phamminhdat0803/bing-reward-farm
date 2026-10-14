@@ -95,6 +95,16 @@ export const DEFAULTS: CoreConfig = {
   log: { dir: '', level: 'info' }
 }
 
+/** Tien do trong luc search — day ra UI sau moi search */
+export type SearchProgress = {
+  kind: 'desktop' | 'mobile'
+  done: number
+  total: number
+  points: number | null
+  today: number | null
+  gained: number
+}
+
 export type SearchPassResult = {
   kind: 'desktop' | 'mobile'
   searches: number

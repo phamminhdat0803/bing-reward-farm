@@ -348,6 +348,10 @@ function createWindow(): void {
           await refreshMany(profiles, {
             onLine: (line: LogLine) => broadcast('log:line', line),
             onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+            onProgress: (pr) => {
+              broadcast('run:progress', pr)
+              if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
+            },
             onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
           })
         })()
@@ -389,7 +393,11 @@ function createWindow(): void {
           .filter(Boolean)
         void startRun(target, kinds, {
           onLine: (line: LogLine) => broadcast('log:line', line),
-          onSnapshot: (snap) => broadcast('rewards:snapshot', snap)
+          onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+          onProgress: (pr) => {
+            broadcast('run:progress', pr)
+            if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
+          }
         })
       }, 8000)
     })
@@ -489,6 +497,10 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     return startRun(p, kinds ?? ['desktop'], {
       onLine: (line: LogLine) => broadcast('log:line', line),
       onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+      onProgress: (pr) => {
+        broadcast('run:progress', pr)
+        if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
+      },
       onStatusChange: (profileId, running) => broadcast('run:status', { profileId, running })
     })
   })
@@ -526,6 +538,10 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     const res = await refreshMany(profiles, {
       onLine: (line: LogLine) => broadcast('log:line', line),
       onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+      onProgress: (pr) => {
+        broadcast('run:progress', pr)
+        if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
+      },
       onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId }),
       gapMs: getSettings().refreshGapMs
     })
@@ -604,6 +620,10 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
       await refreshMany(stale, {
         onLine: (line) => broadcast('log:line', line),
         onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
+        onProgress: (pr) => {
+          broadcast('run:progress', pr)
+          if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
+        },
         onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
       })
     }

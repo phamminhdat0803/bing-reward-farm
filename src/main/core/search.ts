@@ -4,7 +4,7 @@ import type { BrowserContext, Page } from 'playwright-core'
 import { humanPause, humanType, workPage } from './browser'
 import { fmtCounter, readCounters } from './rewards'
 import { cancellableSleep, randInt, sleep } from './logger'
-import type { CoreConfig, Logger, SearchPassResult } from './types'
+import type { CoreConfig, Logger, SearchPassResult, SearchProgress } from './types'
 
 const HOME = 'https://www.bing.com/?FORM=Z9FD1'
 const BOX = '#sb_form_q'
@@ -102,6 +102,8 @@ export async function runSearchPass(args: {
   rememberQuery: (q: string) => void
   preparePage?: (page: Page) => Promise<void>
   shouldStop?: () => boolean
+  /** Bao tien do ra UI (goi sau moi search + sau moi lan doc counter) */
+  onProgress?: (p: SearchProgress) => void
 }): Promise<SearchPassResult> {
   const { cfg, ctx, log, kind, target, nextQuery, rememberQuery, preparePage, shouldStop } = args
   const page = args.page ?? (await workPage(ctx))
@@ -155,7 +157,19 @@ export async function runSearchPass(args: {
   let lastPoints = pointsBefore ?? 0
   let lastToday = todayBefore ?? 0
 
+  // Bao tien do ra UI sau MOI search (diem lay tu lan doc counter gan nhat, khong spam request)
+  const emit = (): void =>
+    args.onProgress?.({
+      kind,
+      done: searches,
+      total: planned,
+      points: lastPoints,
+      today: lastToday,
+      gained: lastPoints - (pointsBefore ?? lastPoints)
+    })
+
   await gotoHome(page)
+  emit()
 
   for (let i = 0; i < planned; i += 1) {
     if (shouldStop?.()) {
@@ -207,7 +221,10 @@ export async function runSearchPass(args: {
       }
       lastPoints = pts
       lastToday = today
+      emit()
       await gotoHome(page).catch(() => {})
+    } else {
+      emit()
     }
 
     if (i < planned - 1) await cancellableSleep(randInt(cfg.search.minDelayMs, cfg.search.maxDelayMs), shouldStop)

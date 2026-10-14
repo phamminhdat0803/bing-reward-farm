@@ -22,6 +22,10 @@ export default function App(): React.JSX.Element {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [logs, setLogs] = useState<LogLine[]>([])
+  /** Tien do search truc tiep theo profile (day tu main moi search) */
+  const [progress, setProgress] = useState<
+    Record<string, { kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }>
+  >({})
   const [busy, setBusy] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState<{ done: number; total: number } | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
@@ -70,12 +74,14 @@ export default function App(): React.JSX.Element {
     const offSnap = window.api.onSnapshot(() => void reload())
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => setRefreshing({ done: p.done, total: p.total }))
     const offRun = window.api.onRunStatus(() => void reload())
+    const offRunProg = window.api.onRunProgress((p) => setProgress((prev) => ({ ...prev, [p.profileId]: p })))
     const timer = window.setInterval(() => void reload(), 60000)
     return () => {
       offLog()
       offSnap()
       offProg()
       offRun()
+      offRunProg()
       window.clearInterval(timer)
     }
   }, [reload])
@@ -270,6 +276,38 @@ export default function App(): React.JSX.Element {
           <>
             <div className="border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-2">
               <StatStrip rows={rows} />
+
+              {/* Tien do search truc tiep: user thay dang kiem bao nhieu diem */}
+              {(() => {
+                const running = rows.filter((r) => r.run.running)
+                if (running.length === 0) return null
+                return (
+                  <div className="space-y-1.5 rounded-[12px] border border-[var(--hairline)] bg-[var(--surface)] px-3 py-2">
+                    {running.map((r) => {
+                      const pr = progress[r.id]
+                      const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
+                      return (
+                        <div key={r.id} className="flex items-center gap-3">
+                          <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
+                          <span className="w-[150px] shrink-0 truncate text-[13px] font-medium">{r.profile.name}</span>
+                          <span className="min-w-[190px] shrink-0 text-[12.5px] text-[var(--steel)]">
+                            {pr ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search` : 'đang chuẩn bị…'}
+                          </span>
+                          <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">
+                            <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${p}%` }} />
+                          </div>
+                          <span className="mm-tabular shrink-0 text-[12.5px] text-[var(--steel)]">
+                            {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
+                            {pr && pr.gained > 0 ? (
+                              <span className="ml-1.5 font-semibold text-[var(--success-text)]">+{pr.gained}</span>
+                            ) : null}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
 
             <AppToolbar
