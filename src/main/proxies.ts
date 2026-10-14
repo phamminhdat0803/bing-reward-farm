@@ -40,6 +40,12 @@ function slug(label: string): string {
 
 /** Trang thai suc khoe da do, tra theo proxyId (cho UI hien proxy dang dung + IP ra). */
 let healthTimer: NodeJS.Timeout | null = null
+let healthNotifier: (() => void) | null = null
+
+/** Renderer dang ky de duoc bao moi khi suc khoe proxy thay doi (chap mau xanh/do ngay lap tuc). */
+export function setHealthNotifier(fn: (() => void) | null): void {
+  healthNotifier = fn
+}
 
 /**
  * Health checker dinh ky trong main: do lai suc khoe cac proxy trong kho.
@@ -255,7 +261,9 @@ export async function checkProxyHealth(url: string, opts: { force?: boolean } = 
   }
 
   healthCache[url] = health
-  if (health.status !== 'live') cooldownUntil[url] = Date.now() + COOLDOWN_MS
+  if (health.status === 'live') delete cooldownUntil[url]
+  else cooldownUntil[url] = Date.now() + COOLDOWN_MS
+  healthNotifier?.()
   return health
 }
 
@@ -320,12 +328,33 @@ export function removeProxies(ids: string[]): { removed: number } {
 }
 
 /** Test 1 proxy va luu ket qua vao kho. */
+/**
+ * Test 1 proxy va luu ket qua.
+ * Dung CHINH phep kiem tra cua cham trang thai (checkProxyHealth: Bing la chinh, ip-api lay IP)
+ * de tab Proxy va cham mau tren bang luon nhat quan — truoc day test bang ip-api nen vua bao XANH
+ * o tab, vua DO o bang (hoac nguoc lai).
+ */
 export async function testAndSave(id: string): Promise<ProxyTestResult> {
   const item = getProxy(id)
   if (!item) return { ok: false, error: 'khong thay proxy' }
-  const res = await testProxy(item.url)
+  const res = await testProxyWithHealth(item.url)
   updateProxy(id, { lastTest: { ...res, at: new Date().toISOString() } })
+  console.log('[health] test thu cong:', item.url, '->', res.ok ? 'OK' : `FAIL (${res.error ?? ''})`)
+  healthNotifier?.()
   return res
+}
+
+/** Chay checkProxyHealth (Bing + ip-api) roi doi sang ProxyTestResult de luu/hien thi. */
+async function testProxyWithHealth(url: string): Promise<ProxyTestResult> {
+  const h = await checkProxyHealth(url, { force: true })
+  if (h.status === 'live') {
+    return { ok: true, ip: h.ip, country: h.country, latency: h.latency }
+  }
+  const why =
+    h.status === 'blocks-bing'
+      ? `song nhung CHAN BING: ${h.error ?? 'khong vao duoc bing'}`
+      : (h.error ?? 'khong ket noi duoc proxy')
+  return { ok: false, ip: h.ip, country: h.country, latency: h.latency, error: why }
 }
 
 /** Test tat ca hoac danh sach proxy duoc chon (song song co gioi han), CHI ghi file 1 lan cho nhanh va tranh tranh chap. */
@@ -340,7 +369,7 @@ export async function testAll(concurrency = 6, filterIds?: string[]): Promise<Re
       i += 1
       const item = items[idx]
       // eslint-disable-next-line no-await-in-loop
-      const res = await testProxy(item.url)
+      const res = await testProxyWithHealth(item.url)
       out[item.id] = res
       const st = load()
       const target = st.items.find((x) => x.id === item.id)
@@ -349,5 +378,6 @@ export async function testAll(concurrency = 6, filterIds?: string[]): Promise<Re
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+  healthNotifier?.()
   return out
 }

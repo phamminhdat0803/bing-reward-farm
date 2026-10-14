@@ -75,6 +75,9 @@ export default function App(): React.JSX.Element {
       setProxies(l)
     })
     void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
+    const offHealth = window.api.onHealthChanged?.(() => {
+      void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
+    })
     const healthTimer = window.setInterval(
       () => void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {}),
       30000
@@ -99,6 +102,7 @@ export default function App(): React.JSX.Element {
       offProg()
       offRun()
       offRunProg()
+      offHealth?.()
       window.clearInterval(healthTimer)
       window.clearInterval(timer)
     }

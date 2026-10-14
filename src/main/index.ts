@@ -8,7 +8,7 @@ import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -212,7 +212,21 @@ function createWindow(): void {
         const lines = fs.readFileSync(String(process.env.BRF_BULK_FILE), 'utf8').split(/\r?\n/)
         const r = addProxyBulk(lines)
         console.log(`[bulk] them ${r.added.length} proxy, bo qua ${r.skipped} dong trung`)
-        if (process.env.BRF_TEST_ALL) {
+        
+  // BRF_TEST_PROXY=<proxyId> -> test 1 proxy qua dung luong "Kiem tra", roi in trang thai health
+  // (chung minh cham mau tren bang lay dung ket qua vua test)
+  if (process.env.BRF_TEST_PROXY) {
+    setTimeout(() => {
+      void (async () => {
+          const id = String(process.env.BRF_TEST_PROXY)
+          const res = await testAndSave(id)
+          const h = getHealthById()[id]
+          console.log('[brf-test-proxy] id=', id, '| testAndSave.ok=', res.ok, '| error=', res.error ?? '-')
+          console.log('[brf-test-proxy] health cho UI =', JSON.stringify(h ?? null))
+      })()
+    }, 14000)
+  }
+if (process.env.BRF_TEST_ALL) {
           const t0 = Date.now()
           const res = await testAll()
           const ok = Object.values(res).filter((x) => x.ok).length
@@ -453,6 +467,7 @@ if (process.env.BRF_DEBUG) {
   app.commandLine.appendSwitch('remote-debugging-port', String(process.env.BRF_DEBUG))
 }
 
+setHealthNotifier(() => broadcast('proxies:healthChanged', {}))
 startHealthLoop({ everyMs: 45000, concurrency: 4 })
 
 app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardfarm')

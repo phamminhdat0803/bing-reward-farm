@@ -53,6 +53,12 @@ const api = {
   testAllProxies: (filterIds?: string[]): Promise<Record<string, ProxyTestResult>> =>
     ipcRenderer.invoke('proxies:testAll', filterIds),
   /** Trang thai suc khoe proxy da do (key = proxyId) */
+  /** Bao khi suc khoe proxy thay doi (test xong, health loop do xong) */
+  onHealthChanged: (cb: () => void): (() => void) => {
+    const handler = (): void => cb()
+    ipcRenderer.on('proxies:healthChanged', handler)
+    return () => ipcRenderer.removeListener('proxies:healthChanged', handler)
+  },
   proxyHealth: (): Promise<
     Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string; checkedAt: string }>
   > => ipcRenderer.invoke('proxies:health'),
