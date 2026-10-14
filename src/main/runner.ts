@@ -303,34 +303,25 @@ export async function startRun(
   hooks.onStatusChange?.(profile.id, true)
   const log = loggerFor(profile, hooks.onLine, job)
 
-  // Preflight: chi chay khi co proxy dang ky; proxy chet -> loai khoi chain, het sach -> DUNG profile
-  // (khong bao gio fallback DIRECT de khong lo IP that)
-  const chainAll = resolveProxyChain(profile)
-  if (chainAll.length > 0) {
-    void (async () => {
-      try {
+  void withProfileLock(profile.id, async () => {
+    try {
+      // ---- Preflight proxy: chan run khi toan bo proxy chet (no-direct BAT) ----
+      const chainAll = resolveProxyChain(profile)
+      if (chainAll.length > 0) {
         const { live, dead } = await preflightChain(chainAll)
         for (const d of dead) log.warn(`[proxy] chet: ${d.proxy} - ${d.error ?? 'khong ro'}`)
         if (live.length === 0) {
           log.error(
-            `[proxy] DUNG profile: toan bo ${chainAll.length} proxy deu chet, khong fallback DIRECT (no-direct dang BAT)`
+            `[proxy] DUNG profile: ca ${chainAll.length} proxy deu chet - khong fallback DIRECT (no-direct dang BAT)`
           )
+          hooks.onStatusChange?.(profile.id, false)
+          jobs.delete(profile.id)
           return
         }
-        if (live.length !== chainAll.length) {
-          log.info(`[proxy] dung chain ${live.length}/${chainAll.length} proxy con song: ${live.join(' , ')}`)
-          updateProfile(profile.id, { proxyFallbacks: live.slice(1) })
-        } else {
-          log.info(`[proxy] chain ${live.length} proxy deu song: ${live.join(' , ')}`)
-        }
-      } catch (e) {
-        log.warn(`[proxy] preflight loi: ${String((e as Error).message).slice(0, 120)}`)
+        log.info(`[proxy] chain ${live.length}/${chainAll.length} proxy song: ${live.join(' , ')}`)
+        if (live.length !== chainAll.length) updateProfile(profile.id, { proxyFallbacks: live.slice(1) })
       }
-    })()
-  }
 
-  void withProfileLock(profile.id, async () => {
-    try {
       const st = loadState(stateFile(profile))
       const rec = dayRecord(st)
       const cfg = coreConfig(profile)

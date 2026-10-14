@@ -168,6 +168,17 @@ export async function runSearchPass(args: {
       gained: lastPoints - (pointsBefore ?? lastPoints)
     })
 
+  // Xac minh IP dau ra thuc te (nghiem thu fallback proxy bang do that)
+  try {
+    await page.goto('http://ip-api.com/json', { waitUntil: 'domcontentloaded', timeout: 15000 })
+    const txt = (await page.textContent('body')) || ''
+    const ip = (txt.match(/"query":"([^"]+)"/) || [])[1]
+    const cc = (txt.match(/"country":"([^"]+)"/) || [])[1]
+    if (ip) log.info(`[${kind}] IP dau ra thuc te: ${ip}${cc ? ` (${cc})` : ''}`)
+  } catch {
+    log.warn(`[${kind}] khong kiem tra duoc IP dau ra (co the proxy loi)`)
+  }
+
   await gotoHome(page)
   emit()
 
@@ -189,7 +200,15 @@ export async function runSearchPass(args: {
       searches += 1
       log.debug(`[${kind}] ${i + 1}/${planned}: ${q} [${how}]`)
     } catch (e) {
-      log.warn(`[${kind}] loi khi search "${q}": ${String((e as Error).message).slice(0, 160)}`)
+      const msg = String((e as Error).message)
+      log.warn(`[${kind}] loi khi search "${q}": ${msg.slice(0, 160)}`)
+      if (/ERR_PROXY_CONNECTION_FAILED|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_PROXY_AUTH/i.test(msg)) {
+        status = 'proxy-failed'
+        log.error(
+          `[${kind}] proxy loi (${msg.split('\n')[0].slice(0, 90)}) - dung luot, khong fallback DIRECT`
+        )
+        break
+      }
     }
 
     if (searches > 0 && searches % cfg.search.checkPointsEvery === 0) {
