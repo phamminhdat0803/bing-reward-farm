@@ -237,3 +237,25 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
   + Form Thêm/Sửa và Drawer hiển thị nút "Kiểm tra proxy" trực tiếp; bảng tài khoản hiển thị tag proxy `🌐 host:port`.
 - Bẫy: dev server giữ file ⇒ sửa `App.tsx` có thể báo `ReplaceFileW EIO (Win32 32)`; phải tắt Electron
   (`Stop-Process electron`) rồi sửa lại.
+
+## Fallback proxy (P2-P4) — verified 2026-10-14
+
+Da lam xong va do that:
+- Chain: `--proxy-server="p1,p2,…"` khi profile co >= 2 proxy (khong auth). Do tren Edge 155:
+  chain `chet,song` -> IP ra = IP proxy (fallback that); chi proxy chet -> ERR_PROXY_CONNECTION_FAILED, KHONG tu DIRECT.
+- Preflight `preflightChain()` chay truoc khi launch: loc proxy chet, promote proxy song dau tien len lam chinh,
+  ghi lai profile (`proxyId=null, proxy=live[0], proxyFallbacks=live.slice(1)`), log `doi proxy chinh: A -> B`.
+- Het sach proxy -> `[proxy] DUNG profile ... KHONG fallback DIRECT` + onStatusChange(false), khong mo browser.
+- Co `settings.noDirectFallback` (mac dinh true) + cong tac tren header; TAT -> chay bang IP may (co canh bao).
+- Health check: **Bing la kiem tra quyet dinh** (<400 live / 403,429 blocks-bing / loi ket noi dead);
+  ip-api chi de hien IP — ip-api rate-limit 429 KHONG duoc coi la proxy chet (loi da tung gap, da sua).
+  Ket qua fail bi cooldown 5 phut (khop cua so bad-proxy cua Chromium) -> khong ping-pong A<->B.
+- UI: chon thu tu proxy du phong trong Sua tai khoan; cham mau trang thai + tooltip IP ra tren bang.
+- Tools: `node tools/find-live-proxy.mjs [n]` (tim proxy vua song vua qua Bing), `node tools/set-chain.mjs set|restore`.
+
+Chua lay duoc 1 bang chung: dong `[desktop] IP dau ra thuc te: <ip>` trong luc chay that.
+Ly do (do that, khong phai loi code):
+- Proxy free trong kho flap rat nhanh: cung 1 proxy qua Bing luc 10:23 nhung 10:22/10:26/10:34 da bi chan/chet.
+- Acc dang nhap bang IP nha (`default`), khi doi sang proxy la -> Bing tra ve `not-signed-in`
+  => pass dung som truoc buoc do IP. Muon co bang chung: dang nhap acc qua dung proxy do
+  (Mo trinh duyet -> dang nhap) roi chay lai, hoac dung proxy tra phi on dinh.
