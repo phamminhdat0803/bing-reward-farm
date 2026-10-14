@@ -72,7 +72,6 @@ export function AccountDialog({
   const [capPreset, setCapPreset] = useState<'auto' | 'taiwan' | 'level1' | 'level2' | 'custom'>('auto')
   const [customDesktopMax, setCustomDesktopMax] = useState('')
   const [customMobileMax, setCustomMobileMax] = useState('')
-  const [headless, setHeadless] = useState(false)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -93,7 +92,6 @@ export function AccountDialog({
     setProxyFallbacks((initial?.proxyFallbacks ?? []).filter(Boolean))
     setPickerOpen(false)
     setProxyResult(null)
-    setHeadless(initial?.headless ?? false)
 
     if (initial?.desktopMax === 15 && (initial?.mobileMax === 0 || initial?.mobileMax == null)) {
       setCapPreset('taiwan')
@@ -166,8 +164,7 @@ export function AccountDialog({
         proxy: proxyId ? null : (initial?.proxy ?? null),
         note: note.trim() || undefined,
         channel,
-        headless,
-        desktopMax: dMax,
+          desktopMax: dMax,
         mobileMax: mMax
       })
       onOpenChange(false)
@@ -528,13 +525,7 @@ export function AccountDialog({
                 </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-[10px] border border-[var(--hairline)] px-3 py-2">
-              <div>
-                <div className="text-[13px] font-medium">Chạy ẩn (headless)</div>
-                <div className="mm-caption">Bật nếu không cần nhìn cửa sổ khi automation chạy.</div>
-              </div>
-              <Switch checked={headless} onCheckedChange={setHeadless} />
-            </div>
+
           </div>
           </div>
         </ScrollArea>

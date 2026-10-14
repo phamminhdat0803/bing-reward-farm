@@ -13,9 +13,16 @@ export type Settings = {
    * TAT = cho phep chay truc tiep bang IP cua may khi het proxy (khong khuyen nghi).
    */
   noDirectFallback: boolean
+  /** BAT = chay an (headless) khi automation; TAT = hien cua so trinh duyet (mac dinh) */
+  runHeadless: boolean
 }
 
-const DEFAULTS: Settings = { autoRefreshOnNewDay: true, refreshGapMs: 2000, noDirectFallback: true }
+const DEFAULTS: Settings = {
+  autoRefreshOnNewDay: true,
+  refreshGapMs: 2000,
+  noDirectFallback: true,
+  runHeadless: false
+}
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')
 

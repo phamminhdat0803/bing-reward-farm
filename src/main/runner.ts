@@ -100,7 +100,7 @@ async function withSession<T>(profile: Profile, fn: (s: Session, kind: 'local' |
         await s.close()
       }
     }
-    const cfg = coreConfig(profile, { headless: profile.headless })
+    const cfg = coreConfig(profile, { headless: getSettings().runHeadless })
     try {
       const session = await launchPersistent(profile.profileDir, cfg, { mobile: false })
       try {
@@ -304,6 +304,7 @@ export async function startRun(
   jobs.set(profile.id, job)
   hooks.onStatusChange?.(profile.id, true)
   const log = loggerFor(profile, hooks.onLine, job)
+  log.info(`[run] che do hien thi: ${getSettings().runHeadless ? 'AN (headless)' : 'HIEN cua so'}`)
 
   void withProfileLock(profile.id, async () => {
     try {

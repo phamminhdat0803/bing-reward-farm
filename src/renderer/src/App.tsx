@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Settings2, MonitorCog, ShieldOff } from 'lucide-react'
+import { Settings2, MonitorCog, ShieldOff, EyeOff } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
@@ -279,6 +279,23 @@ export default function App(): React.JSX.Element {
               onCheckedChange={async (v) => {
                 const next = await window.api.setSettings({ autoRefreshOnNewDay: v })
                 setSettingsState(next)
+              }}
+            />
+          </div>
+
+          {/* Chay an (headless): bat/tat ngay khi chay, khong can sua tung tai khoan */}
+          <div
+            className="hidden items-center gap-2 rounded-full border border-[var(--hairline)] px-3 py-1.5 lg:flex"
+            title="BẬT: automation chạy ẩn (không hiện cửa sổ trình duyệt). TẮT: hiện cửa sổ để bạn theo dõi."
+          >
+            <EyeOff className="size-3.5 text-[var(--steel)]" />
+            <span className="text-[13px]">Chạy ẩn (headless)</span>
+            <Switch
+              checked={settings?.runHeadless === true}
+              onCheckedChange={async (v) => {
+                const next = await window.api.setSettings({ runHeadless: v })
+                setSettingsState(next)
+                toast.info(v ? 'Automation sẽ chạy ẩn (headless).' : 'Automation sẽ hiện cửa sổ trình duyệt.')
               }}
             />
           </div>
