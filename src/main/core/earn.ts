@@ -16,6 +16,8 @@ type OfferCard = {
   /** The bi khoa boi cap do (vd "Silver level required") */
   locked: boolean
   lockReason: string | null
+  /** Khoa doc tu chinh the ('own') hay tu ancestor chi chua rieng the nay ('scope') */
+  lockWhere?: 'own' | 'scope' | null
 }
 
 /** Doc cac the daily-offer chua hoan thanh trong muc "Keep earning" cua /earn. */
@@ -32,21 +34,32 @@ async function readOfferCards(
     const LOCK =
       /(silver|gold|bronze|platinum)\s*(level)?\s*required|level\s*\d+\s*required|required\s*(silver|gold|level)|hạng\s*(bạc|vàng|đồng|kim cương)|yêu cầu\s*(cấp|hạng)|cần\s*(hạng|cấp)|đạt\s*(hạng|cấp)/i
 
+    const hasPoints = (el: Element): boolean => /\+\s*\d{1,4}/.test(norm(el.textContent))
+
     /**
-     * Text cua the: di len toi da 3 cap nhung DUNG lai khi gap ancestor qua lon
-     * (tranh lay text ca section -> nhieu the bi danh dau khoa oan).
+     * Tim ghi chu khoa cap do MOT CACH CHAT CHE:
+     *  1) doc trong CHINH the (a.innerText) — day la text nguoi dung nhin thay tren the;
+     *  2) neu khong co, di len toi da 3 cap nhung DUNG ngay khi gap ancestor chua mot the "+N" KHAC
+     *     (truoc day lay text 3 cap tuy y => vớt ca ghi chu khoa cua the ben canh => khoa OAN,
+     *      khien the binh thuong khong duoc click).
+     * Tra ve [text khop, nguon].
      */
-    const containerText = (a: HTMLAnchorElement): string => {
-      const own = a.getBoundingClientRect()
-      const ownArea = Math.max(1, own.width * own.height)
+    const findLock = (a: HTMLAnchorElement): [string, 'own' | 'scope'] | null => {
+      const own = norm(a.innerText || a.textContent)
+      const ownHit = own.match(LOCK)
+      if (ownHit) return [ownHit[0], 'own']
       let el: HTMLElement = a
       for (let i = 0; i < 3 && el.parentElement; i += 1) {
         const p: HTMLElement = el.parentElement
-        const pr = p.getBoundingClientRect()
-        if (i > 0 && pr.width * pr.height > ownArea * 6) break
+        const others = Array.from(p.querySelectorAll('a[href]')).filter(
+          (x) => x !== a && hasPoints(x)
+        )
+        if (others.length > 0) break
         el = p
+        const hit = norm(el.innerText || el.textContent).match(LOCK)
+        if (hit) return [hit[0], 'scope']
       }
-      return norm(el.innerText || el.textContent).slice(0, 400)
+      return null
     }
 
     const skip = (href: string, text: string): boolean =>
@@ -57,13 +70,14 @@ async function readOfferCards(
       if (!href || seen.has(href)) return
       seen.add(href)
       const m = text.match(/\+\s*(\d{1,4})/) ?? text.match(/(\d{1,4})\s*(?:points?|điểm)/i)
-      const lock = (text + ' ' + containerText(a)).match(LOCK)
+      const lock = findLock(a)
       out.push({
         href,
         text: text.slice(0, 140),
         points: m ? Number(m[1]) : null,
         locked: Boolean(lock),
         lockReason: lock ? lock[0].replace(/\s+/g, ' ').trim() : null,
+        lockWhere: lock ? lock[1] : null,
         source
       })
     }
@@ -171,7 +185,7 @@ export async function runEarnPass(args: {
   // Chan doan: liet ke tung the tim duoc (nguon, diem, co bi khoa khong)
   for (const c of cards.slice(0, 15)) {
     log.info(
-      `[earn] the[${c.source ?? '?'}]: ${c.points ? `+${c.points}d ` : ''}${c.text.slice(0, 70)}${c.locked ? ` [KHOA: ${c.lockReason}]` : ' [MO]'}`
+      `[earn] the[${c.source ?? '?'}]: ${c.points ? `+${c.points}d ` : ''}${c.text.slice(0, 70)}${c.locked ? ` [KHOA ${c.lockWhere}: ${c.lockReason}]` : ' [MO]'}`
     )
   }
   if (cards.filter((c) => !c.locked).length === 0 && cardScan.raw.length > 0) {
