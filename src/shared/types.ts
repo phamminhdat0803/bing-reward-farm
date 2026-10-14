@@ -98,6 +98,8 @@ export type AppSettings = {
   noDirectFallback?: boolean
   /** true = chay an (headless) khi automation */
   runHeadless?: boolean
+  /** Số tài khoản chạy song song tối đa (mặc định 2) */
+  maxParallelRuns?: number
   autoRefreshOnNewDay: boolean
   refreshGapMs: number
 }

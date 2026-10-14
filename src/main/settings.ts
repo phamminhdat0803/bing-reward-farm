@@ -15,13 +15,16 @@ export type Settings = {
   noDirectFallback: boolean
   /** BAT = chay an (headless) khi automation; TAT = hien cua so trinh duyet (mac dinh) */
   runHeadless: boolean
+  /** So tai khoan chay SONG SONG toi da; cac acc vuot han cho vao hang doi (FIFO) */
+  maxParallelRuns: number
 }
 
 const DEFAULTS: Settings = {
   autoRefreshOnNewDay: true,
   refreshGapMs: 2000,
   noDirectFallback: true,
-  runHeadless: false
+  runHeadless: false,
+  maxParallelRuns: 2
 }
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')

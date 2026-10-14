@@ -64,6 +64,56 @@ type Job = {
 
 const jobs = new Map<string, Job>()
 
+// ---------------------------------------------------------------------------
+// Hang doi chay: gioi han so job song song (settings.maxParallelRuns, mac dinh 2).
+// "Cham ma chac": vuot han thi vao hang doi FIFO, chay xong job nao thi lay job ke tiep.
+// ---------------------------------------------------------------------------
+type RunHooks = {
+  onLine?: (l: LogLine) => void
+  onSnapshot?: (s: Snapshot) => void
+  onStatusChange?: (profileId: string, running: boolean) => void
+  onProgress?: (p: SearchProgress & { profileId: string }) => void
+  onQueue?: (items: { profileId: string; name: string; position: number }[]) => void
+}
+const runQueue: { profile: Profile; kinds: string[]; hooks: RunHooks }[] = []
+let pumping = false
+
+/** Danh sach dang cho (vi tri 1 = chay ke tiep). */
+export function queueState(): { profileId: string; name: string; position: number }[] {
+  return runQueue.map((q, i) => ({ profileId: q.profile.id, name: q.profile.name, position: i + 1 }))
+}
+
+function notifyQueue(): void {
+  const items = queueState()
+  for (const q of runQueue) q.hooks.onQueue?.(items)
+}
+
+/** Chay job ke tiep neu con slot. Goi sau khi 1 job ket thuc. */
+function pumpQueue(): void {
+  if (pumping) return
+  pumping = true
+  try {
+    const max = Math.max(1, getSettings().maxParallelRuns ?? 2)
+    while (jobs.size < max && runQueue.length > 0) {
+      const next = runQueue.shift()
+      if (!next) break
+      console.log('[queue] bat dau ' + next.profile.name + ' tu hang doi (con cho ' + runQueue.length + ')')
+      void startRunNow(next.profile, next.kinds, next.hooks)
+    }
+    notifyQueue()
+  } finally {
+    pumping = false
+  }
+}
+
+export function runStateAll(): {
+  running: string[]
+  queued: { profileId: string; name: string; position: number }[]
+  max: number
+} {
+  return { running: Array.from(jobs.keys()), queued: queueState(), max: Math.max(1, getSettings().maxParallelRuns ?? 2) }
+}
+
 export function coreConfig(profile: Profile, overrides: Partial<CoreConfig['browser']> = {}): CoreConfig {
   const cfg: CoreConfig = JSON.parse(JSON.stringify(DEFAULTS))
   const channel = profile.channel ?? 'msedge'
@@ -278,10 +328,19 @@ export async function openLoginWindow(profile: Profile): Promise<{ ok: boolean; 
   }
 }
 
-export function runState(profileId: string): { running: boolean; kinds: string[]; log: LogLine[] } {
+export function runState(profileId: string): {
+  running: boolean
+  queued: boolean
+  queuePosition: number | null
+  kinds: string[]
+  log: LogLine[]
+} {
+  const pos = runQueue.findIndex((q) => q.profile.id === profileId)
+  const queued = pos >= 0
+  const queuePosition = queued ? pos + 1 : null
   const job = jobs.get(profileId)
-  if (!job || job.cancelled) return { running: false, kinds: [], log: job?.log.slice(-200) ?? [] }
-  return { running: true, kinds: job.kinds, log: job.log.slice(-200) }
+  if (!job || job.cancelled) return { running: false, queued, queuePosition, kinds: [], log: job?.log.slice(-200) ?? [] }
+  return { running: true, queued, queuePosition, kinds: job.kinds, log: job.log.slice(-200) }
 }
 
 export function stopRun(profileId: string): { ok: boolean } {
@@ -298,14 +357,40 @@ export function stopRun(profileId: string): { ok: boolean } {
 export async function startRun(
   profile: Profile,
   kinds: string[],
-  hooks: {
-    onLine?: (l: LogLine) => void
-    onSnapshot?: (s: Snapshot) => void
-    onStatusChange?: (profileId: string, running: boolean) => void
-    onProgress?: (p: SearchProgress & { profileId: string }) => void
-  } = {}
-): Promise<{ ok: boolean; runId?: string; error?: string }> {
+  hooks: RunHooks = {}
+): Promise<{ ok: boolean; runId?: string; error?: string; queued?: boolean; position?: number }> {
   if (jobs.has(profile.id)) return { ok: false, error: 'profile nay dang chay' }
+  if (runQueue.some((q) => q.profile.id === profile.id)) {
+    return { ok: false, error: 'profile nay dang trong hang doi' }
+  }
+
+  const max = Math.max(1, getSettings().maxParallelRuns ?? 2)
+  // Con slot VA khong ai dang cho -> chay ngay; nguoc lai xep hang (FIFO, khong chen ngang)
+  if (jobs.size >= max || runQueue.length > 0) {
+    runQueue.push({ profile, kinds, hooks })
+    const position = runQueue.length
+    hooks.onStatusChange?.(profile.id, false)
+    hooks.onQueue?.(queueState())
+    console.log('[queue] ' + profile.name + ' vao hang doi (vi tri ' + position + '; dang chay ' + jobs.size + '/' + max + ')')
+    hooks.onLine?.({
+      at: new Date().toISOString(),
+      level: 'info',
+      msg: `[queue] ${profile.name} vao hang doi (vi tri ${position}; dang chay ${jobs.size}/${max})`,
+      profileId: profile.id
+    })
+    notifyQueue()
+    return { ok: true, queued: true, position }
+  }
+  void startRunNow(profile, kinds, hooks)
+  return { ok: true }
+}
+
+/** Than chay that su (truoc day la phan than cua startRun). */
+async function startRunNow(
+  profile: Profile,
+  kinds: string[],
+  hooks: RunHooks = {}
+): Promise<void> {
   const job: Job = { startedAt: new Date().toISOString(), kinds, cancelled: false, log: [] }
   jobs.set(profile.id, job)
   hooks.onStatusChange?.(profile.id, true)
@@ -603,10 +688,11 @@ export async function startRun(
       jobs.delete(profile.id)
       clearActiveChain(profile.id)
       hooks.onStatusChange?.(profile.id, false)
+      pumpQueue()
     }
   })
 
-  return { ok: true, runId: `${profile.id}-${Date.now()}` }
+  return
 }
 
 /** Dang xuat khoi Microsoft/Bing trong profile (xoa toan bo cookie cua profile do). */

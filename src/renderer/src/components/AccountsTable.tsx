@@ -83,7 +83,7 @@ function MiniBar({
   const prog = progress ?? 0
   const p = pct(prog, max)
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex min-w-0 items-center gap-1.5">
       <span className="mm-tabular w-[46px] text-[12.5px]">
         {prog}
         <span className="text-[var(--stone)]">/{max}</span>
@@ -265,7 +265,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate font-medium text-[13.5px] leading-tight" title={row.profile.name}>
                         {row.profile.name}
                       </span>
@@ -333,11 +333,11 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     {!hasData ? (
                       <span className="text-[13px] text-[var(--stone)]">—</span>
                     ) : c?.earn ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                   <MiniBar progress={c.earn.progress} max={c.earn.max} />
                   {c.earn.blockedPoints ? (
                     <span
-                      className="shrink-0 rounded bg-[var(--error)]/10 px-1 text-[10.5px] font-semibold text-[var(--error)]"
+                      className="shrink-0 whitespace-nowrap rounded bg-[var(--error)]/10 px-1 text-[10.5px] font-semibold text-[var(--error)]"
                       title={
                         'Không kiếm được ' +
                         c.earn.blockedPoints +
@@ -347,7 +347,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
                           .join('\n')
                       }
                     >
-                      -{c.earn.blockedPoints} khoá
+                      -{c.earn.blockedPoints}đ
                     </span>
                   ) : null}
                 </div>

@@ -4,7 +4,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
 import { browserState, closeBrowser, openBrowser } from './browsers'
-import { openLoginWindow, refreshMany, resetProfile, runState, signOut, snapshot, startRun, stopRun } from './runner'
+import { openLoginWindow, queueState, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
@@ -251,6 +251,15 @@ if (process.env.BRF_TEST_ALL) {
     })()
   }
 
+  // BRF_WINDOW_SIZE=1186x921 -> dat kich thuoc cua so (tai hien man hep khi kiem tra UI)
+  if (process.env.BRF_WINDOW_SIZE) {
+    const m = String(process.env.BRF_WINDOW_SIZE).match(/^(\\d+)x(\\d+)$/)
+    if (m) {
+      mainWindow.setSize(Number(m[1]), Number(m[2]))
+      console.log('[window] size ->', m[1] + 'x' + m[2])
+    }
+  }
+
   // BRF_THROW=1 -> nem loi khong bat (kiem chung luoi an toan: app phai KHONG hien dialog va van song)
   if (process.env.BRF_THROW) {
     setTimeout(() => {
@@ -430,11 +439,13 @@ if (process.env.BRF_TEST_ALL) {
         const hooks = (): {
           onLine: (line: LogLine) => void
           onStatusChange?: (profileId: string, running: boolean) => void
+          onQueue?: (items: { profileId: string; name: string; position: number }[]) => void
           onSnapshot: (snap: never) => void
           onProgress: (pr: never) => void
         } => ({
           onLine: (line: LogLine) => broadcast('log:line', line),
           onStatusChange: (profileId: string, running: boolean) => broadcast('run:status', { profileId, running }),
+          onQueue: () => broadcast('run:queue', { items: queueState(), max: runStateAll().max }),
           onSnapshot: (snap) => broadcast('rewards:snapshot', snap as never),
           onProgress: (pr) => {
             broadcast('run:progress', pr as never)
@@ -583,7 +594,8 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
         broadcast('run:progress', pr)
         if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
       },
-      onStatusChange: (profileId, running) => broadcast('run:status', { profileId, running })
+      onStatusChange: (profileId, running) => broadcast('run:status', { profileId, running }),
+      onQueue: () => broadcast('run:queue', { items: queueState(), max: runStateAll().max })
     })
   })
   ipcMain.handle('run:stop', (_e, id) => {
@@ -592,6 +604,7 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     return res
   })
   ipcMain.handle('run:state', (_e, id) => runState(id))
+  ipcMain.handle('run:queue', () => runStateAll())
 
   // ---------- IPC: bang trang thai (doc tu cache, KHONG mo trinh duyet) ----------
   ipcMain.handle('state:list', async (): Promise<RowState[]> => {

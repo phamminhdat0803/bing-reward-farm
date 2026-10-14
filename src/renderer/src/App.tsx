@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Settings2, MonitorCog, ShieldOff, EyeOff, Loader2 } from 'lucide-react'
+import { Settings2, MonitorCog, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
@@ -28,6 +28,9 @@ export default function App(): React.JSX.Element {
     Record<string, { kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }>
   >({})
   const [busy, setBusy] = useState<string | null>(null)
+  /** Hàng đợi chạy (giới hạn số acc song song) */
+  const [queue, setQueue] = useState<{ profileId: string; name: string; position: number }[]>([])
+  const [queueMax, setQueueMax] = useState(2)
   const [refreshing, setRefreshing] = useState<{ done: number; total: number } | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -76,6 +79,14 @@ export default function App(): React.JSX.Element {
       setProxies(l)
     })
     void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
+    void window.api.runQueue?.().then((q) => {
+      setQueue(q.queued)
+      setQueueMax(q.max)
+    })
+    const offQueue = window.api.onRunQueue?.((p) => {
+      setQueue(p.items)
+      setQueueMax(p.max)
+    })
     const offHealth = window.api.onHealthChanged?.(() => {
       void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
     })
@@ -103,6 +114,7 @@ export default function App(): React.JSX.Element {
       offProg()
       offRun()
       offRunProg()
+      offQueue?.()
       offHealth?.()
       window.clearInterval(healthTimer)
       window.clearInterval(timer)
@@ -278,51 +290,74 @@ export default function App(): React.JSX.Element {
             <MonitorCog className="size-3.5" /> Trình duyệt
             {browserCount > 0 ? <span className="text-[var(--stone)]">({browserCount})</span> : null}
           </Button>
-          <div className="hidden items-center gap-2 rounded-full border border-[var(--hairline)] px-3 py-1.5 lg:flex">
-            <Settings2 className="size-3.5 text-[var(--steel)]" />
-            <span className="text-[13px]">Sang ngày mới tự lấy điểm</span>
-            <Switch
-              checked={settings?.autoRefreshOnNewDay ?? true}
-              onCheckedChange={async (v) => {
-                const next = await window.api.setSettings({ autoRefreshOnNewDay: v })
-                setSettingsState(next)
-              }}
-            />
-          </div>
 
-          {/* Chay an (headless): bat/tat ngay khi chay, khong can sua tung tai khoan */}
-          <div
-            className="hidden items-center gap-2 rounded-full border border-[var(--hairline)] px-3 py-1.5 lg:flex"
-            title="BẬT: automation chạy ẩn (không hiện cửa sổ trình duyệt). TẮT: hiện cửa sổ để bạn theo dõi."
-          >
-            <EyeOff className="size-3.5 text-[var(--steel)]" />
-            <span className="text-[13px]">Chạy ẩn (headless)</span>
-            <Switch
-              checked={settings?.runHeadless === true}
-              onCheckedChange={async (v) => {
-                const next = await window.api.setSettings({ runHeadless: v })
-                setSettingsState(next)
-                toast.info(v ? 'Automation sẽ chạy ẩn (headless).' : 'Automation sẽ hiện cửa sổ trình duyệt.')
-              }}
-            />
-          </div>
+          {/* Gom moi dieu khien chay vao 1 nut: header khong bi vo chu khi cua so hep */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="tertiary" className="shrink-0 gap-1.5 whitespace-nowrap">
+                <Settings2 className="size-3.5" /> Cài đặt chạy
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[300px] p-2">
+              <div className="grid gap-1">
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]">Sang ngày mới tự lấy điểm</span>
+                  <Switch
+                    checked={settings?.autoRefreshOnNewDay ?? true}
+                    onCheckedChange={async (v) => {
+                      const next = await window.api.setSettings({ autoRefreshOnNewDay: v })
+                      setSettingsState(next)
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]">Chạy ẩn (headless)</span>
+                  <Switch
+                    checked={settings?.runHeadless === true}
+                    onCheckedChange={async (v) => {
+                      const next = await window.api.setSettings({ runHeadless: v })
+                      setSettingsState(next)
+                      toast.info(v ? 'Automation sẽ chạy ẩn.' : 'Automation sẽ hiện cửa sổ trình duyệt.')
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]">Không fallback DIRECT</span>
+                  <Switch
+                    checked={settings?.noDirectFallback !== false}
+                    onCheckedChange={async (v) => {
+                      const next = await window.api.setSettings({ noDirectFallback: v })
+                      setSettingsState(next)
+                      if (!v) toast.warning('Đã TẮT no-direct: hết proxy sẽ chạy bằng IP thật của máy.')
+                    }}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]">Chạy song song (queue)</span>
+                  <select
+                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
+                    value={queueMax}
+                    onChange={async (e) => {
+                      const v = Number(e.target.value)
+                      setQueueMax(v)
+                      const next = await window.api.setSettings({ maxParallelRuns: v })
+                      setSettingsState(next)
+                      toast.info('Chạy song song tối đa ' + v + ' tài khoản; các acc khác vào hàng đợi.')
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-          {/* No-direct: het proxy thi dung profile, khong roi ve IP that (mac dinh BAT) */}
-          <div
-            className="hidden items-center gap-2 rounded-full border border-[var(--hairline)] px-3 py-1.5 lg:flex"
-            title="BẬT: khi toàn bộ proxy đều chết thì DỪNG tài khoản, không chạy bằng IP thật của máy"
-          >
-            <ShieldOff className="size-3.5 text-[var(--steel)]" />
-            <span className="text-[13px]">Không fallback DIRECT</span>
-            <Switch
-              checked={settings?.noDirectFallback !== false}
-              onCheckedChange={async (v) => {
-                const next = await window.api.setSettings({ noDirectFallback: v })
-                setSettingsState(next)
-                if (!v) toast.warning('Đã TẮT no-direct: hết proxy sẽ chạy bằng IP thật của máy.')
-              }}
-            />
-          </div>
+
+
           <Badge variant="outline">
             dữ liệu lưu: {rows.filter((r) => r.cache).length}/{rows.length}
           </Badge>
@@ -430,15 +465,15 @@ export default function App(): React.JSX.Element {
         )}
 
 {/* Nut tron noi: so tai khoan dang chay + popover tien do (kieu badge upload cua Google Drive) */}
-        {runningRows.length > 0 ? (
+        {runningRows.length > 0 || queue.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 data-slot="run-fab"
                 className="fixed bottom-[66px] right-5 z-40 flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:scale-[1.06]"
-                title={`${runningRows.length} tài khoản đang chạy — bấm để xem tiến độ`}
-                aria-label={`${runningRows.length} tài khoản đang chạy`}
+                title={`${runningRows.length} đang chạy${queue.length ? ` · ${queue.length} đang chờ` : ''} (tối đa ${queueMax} song song) — bấm để xem tiến độ`}
+                aria-label={`${runningRows.length} tài khoản đang chạy${queue.length ? `, ${queue.length} đang chờ` : ''}`}
               >
                 <Loader2 className="size-5 animate-spin text-[var(--brand-blue-deep)]" />
                 <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[var(--error)] text-[11px] font-semibold text-white">
@@ -484,6 +519,23 @@ export default function App(): React.JSX.Element {
                     </div>
                   )
                 })}
+                {queue.length > 0 ? (
+                  <div className="mt-2 border-t border-[var(--hairline-soft)] pt-2">
+                    <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
+                      Đang chờ ({queue.length}) — tối đa {queueMax} chạy song song
+                    </div>
+                    {queue.map((q) => (
+                      <div
+                        key={q.profileId}
+                        className="mb-1 flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1 last:mb-0"
+                      >
+                        <span className="mm-tabular w-4 shrink-0 text-[11.5px] text-[var(--stone)]">{q.position}</span>
+                        <span className="min-w-0 flex-1 truncate text-[12px]">{q.name}</span>
+                        <span className="shrink-0 text-[11.5px] text-[var(--stone)]">chờ</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </DropdownMenuContent>
           </DropdownMenu>

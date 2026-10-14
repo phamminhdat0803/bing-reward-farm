@@ -106,6 +106,19 @@ const api = {
     ipcRenderer.on('run:progress', handler)
     return () => ipcRenderer.removeListener('run:progress', handler)
   },
+  /** Hang doi chay (gioi han so job song song) */
+  onRunQueue: (
+    cb: (p: { items: { profileId: string; name: string; position: number }[]; max: number }) => void
+  ): (() => void) => {
+    const handler = (_e: unknown, p: { items: { profileId: string; name: string; position: number }[]; max: number }): void => cb(p)
+    ipcRenderer.on('run:queue', handler)
+    return () => ipcRenderer.removeListener('run:queue', handler)
+  },
+  runQueue: (): Promise<{
+    running: string[]
+    queued: { profileId: string; name: string; position: number }[]
+    max: number
+  }> => ipcRenderer.invoke('run:queue'),
   onSnapshot: (cb: (snap: Snapshot) => void): (() => void) => {
     const handler = (_e: unknown, snap: Snapshot): void => cb(snap)
     ipcRenderer.on('rewards:snapshot', handler)
