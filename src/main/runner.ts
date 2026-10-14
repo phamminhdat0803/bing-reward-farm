@@ -18,7 +18,7 @@ import { DEFAULTS, type CoreConfig, type Logger, type LogLine, type SearchProgre
 import { browserState, closeBrowser, markRun } from './browsers'
 import { withProfileLock } from './lock'
 import { logDir, stateFile, updateProfile, type Profile } from './profiles'
-import { preflightChain, resolveProxyChain, resolveProxyUrl } from './proxies'
+import { clearActiveChain, preflightChain, resolveProxyChain, resolveProxyUrl, setActiveChain } from './proxies'
 
 export type Snapshot = {
   profileId: string
@@ -319,7 +319,13 @@ export async function startRun(
           return
         }
         log.info(`[proxy] chain ${live.length}/${chainAll.length} proxy song: ${live.join(' , ')}`)
-        if (live.length !== chainAll.length) updateProfile(profile.id, { proxyFallbacks: live.slice(1) })
+        // Chain thuc te cho lan launch nay: bo proxy chet, proxy song dau tien len lam chinh
+        setActiveChain(profile.id, live)
+        if (live.length !== chainAll.length) {
+          const oldMain = resolveProxyUrl(profile)
+          updateProfile(profile.id, { proxyId: null, proxy: live[0], proxyFallbacks: live.slice(1) })
+          log.info(`[proxy] doi proxy chinh: ${oldMain ?? '(khong)'} -> ${live[0]}`)
+        }
       }
 
       const st = loadState(stateFile(profile))
@@ -551,6 +557,7 @@ export async function startRun(
       }
     } finally {
       jobs.delete(profile.id)
+      clearActiveChain(profile.id)
       hooks.onStatusChange?.(profile.id, false)
     }
   })

@@ -85,11 +85,23 @@ export function addProxyBulk(lines: string[]): { added: ProxyItem[]; skipped: nu
 }
 
 /** Danh sach proxy theo thu tu uu tien cua 1 profile (chinh + du phong), da chuan hoa scheme. */
+const chainOverride: Record<string, string[]> = {}
+
+/** Sau preflight: chain thuc te se dung cho lan launch nay (khong can ghi lai profile). */
+export function setActiveChain(profileId: string, chain: string[]): void {
+  chainOverride[profileId] = chain
+}
+export function clearActiveChain(profileId: string): void {
+  delete chainOverride[profileId]
+}
+
 export function resolveProxyChain(profile: {
   proxyId?: string | null
   proxy?: string | null
   proxyFallbacks?: string[] | null
 }): string[] {
+  const id = (profile as { id?: string }).id
+  if (id && chainOverride[id]?.length) return chainOverride[id]
   const out: string[] = []
   const main = resolveProxyUrl(profile)
   if (main) out.push(main)
