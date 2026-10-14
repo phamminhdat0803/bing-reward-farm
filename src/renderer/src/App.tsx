@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Settings2, MonitorCog, ShieldOff, EyeOff } from 'lucide-react'
+import { Settings2, MonitorCog, ShieldOff, EyeOff, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@renderer/components/ui/dropdown-menu'
 import { Switch } from '@renderer/components/ui/switch'
 import { AppToolbar } from '@renderer/components/AppToolbar'
 import { AccountsTable } from '@renderer/components/AccountsTable'
@@ -107,6 +108,8 @@ export default function App(): React.JSX.Element {
       window.clearInterval(timer)
     }
   }, [reload])
+
+  const runningRows = useMemo(() => rows.filter((r) => r.run.running), [rows])
 
   const anyRunning = rows.some((r) => r.run.running)
   const anyBrowserOpen = rows.some((r) => r.browser.running)
@@ -333,49 +336,6 @@ export default function App(): React.JSX.Element {
             <div className="border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-2">
               <StatStrip rows={rows} />
 
-              {/* Tien do search truc tiep: user thay dang kiem bao nhieu diem */}
-              {(() => {
-                const running = rows.filter((r) => r.run.running)
-                if (running.length === 0) return null
-                return (
-                  <div className="mt-2 grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
-                    {running.map((r) => {
-                      const pr = progress[r.id]
-                      const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
-                      return (
-                        <div
-                          key={r.id}
-                          className="rounded-[12px] border border-[var(--hairline)] bg-[var(--surface)] px-3 py-2.5"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{r.profile.name}</span>
-                            <span className="mm-tabular shrink-0 text-[12.5px] text-[var(--steel)]">
-                              {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
-                              {pr && pr.gained > 0 ? (
-                                <span className="ml-1.5 font-semibold text-[var(--success-text)]">+{pr.gained}</span>
-                              ) : null}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex items-center gap-2.5">
-                            <span className="w-[130px] shrink-0 text-[12.5px] text-[var(--steel)]">
-                              {pr
-                                ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search`
-                                : 'đang chuẩn bị…'}
-                            </span>
-                            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">
-                              <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${p}%` }} />
-                            </div>
-                            <span className="mm-tabular w-9 shrink-0 text-right text-[11.5px] text-[var(--stone)]">
-                              {p}%
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
             </div>
 
             <AppToolbar
@@ -468,6 +428,66 @@ export default function App(): React.JSX.Element {
             }}
           />
         )}
+
+{/* Nut tron noi: so tai khoan dang chay + popover tien do (kieu badge upload cua Google Drive) */}
+        {runningRows.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-slot="run-fab"
+                className="fixed bottom-[66px] right-5 z-40 flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:scale-[1.06]"
+                title={`${runningRows.length} tài khoản đang chạy — bấm để xem tiến độ`}
+                aria-label={`${runningRows.length} tài khoản đang chạy`}
+              >
+                <Loader2 className="size-5 animate-spin text-[var(--brand-blue-deep)]" />
+                <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[var(--error)] text-[11px] font-semibold text-white">
+                  {running.length}
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-[350px] p-0">
+              <div className="flex items-center justify-between border-b border-[var(--hairline-soft)] px-3 py-2">
+                <span className="text-[12.5px] font-semibold">Đang chạy ({runningRows.length})</span>
+                <span className="mm-micro">bấm ra ngoài để đóng</span>
+              </div>
+              <div className="max-h-[320px] overflow-auto p-2">
+                {runningRows.map((r) => {
+                  const pr = progress[r.id]
+                  const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
+                  return (
+                    <div
+                      key={r.id}
+                      className="mb-1.5 rounded-[10px] border border-[var(--hairline)] bg-[var(--surface)] px-2.5 py-2 last:mb-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="size-2 shrink-0 animate-pulse rounded-full bg-[var(--brand-blue-deep)]" />
+                        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{r.profile.name}</span>
+                        <span className="mm-tabular shrink-0 text-[12px] text-[var(--steel)]">
+                          {pr?.today != null ? `hôm nay ${pr.today}đ` : '—'}
+                          {pr && pr.gained > 0 ? (
+                            <span className="ml-1.5 font-semibold text-[var(--success-text)]">+{pr.gained}</span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="w-[118px] shrink-0 text-[12px] text-[var(--steel)]">
+                          {pr
+                            ? `${pr.kind === 'mobile' ? 'Mobile' : 'Desktop'} ${pr.done}/${pr.total} search`
+                            : 'đang chuẩn bị…'}
+                        </span>
+                        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--hairline)]">
+                          <div className="h-full bg-[var(--primary)] transition-all" style={{ width: `${p}%` }} />
+                        </div>
+                        <span className="mm-tabular w-8 shrink-0 text-right text-[11.5px] text-[var(--stone)]">{p}%</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
 
         <LogDock
           lines={logs}

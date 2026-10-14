@@ -399,7 +399,7 @@ if (process.env.BRF_TEST_ALL) {
             console.error('[autoopen] loi', e)
           }
         })()
-      }, 6000)
+      }, Number(process.env.BRF_OPEN_MENU_DELAY ?? 6000))
     })
   }
 
