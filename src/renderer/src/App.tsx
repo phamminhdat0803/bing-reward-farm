@@ -431,6 +431,7 @@ export default function App(): React.JSX.Element {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         initial={editing}
+        rows={rows}
         onSubmit={async (patch) => {
           if (editing) await window.api.updateProfile(editing.id, patch)
           else await window.api.addProfile(patch)

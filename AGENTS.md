@@ -31,6 +31,13 @@ BRF_CAPTURE=1 BRF_CAPTURE_DELAY=50000 npm run dev   # chụp UI ra docs/screensh
 
 ## Sửa lỗi + tính năng 2026-10-14
 
+- **Chọn proxy kiểu mới**: `AccountDialog` chỉ còn **1 card** "Proxy" (hiện proxy đang chọn + badge độ trễ).
+  Bấm card → `ProxyPickerDialog` (`z-[70]`): **tìm kiếm** (tên/url/IP/quốc gia), **sắp xếp** (độ trễ tăng/giảm,
+  tên A→Z, chưa gắn trước), lọc **"Chỉ proxy chưa gắn"**, và mỗi dòng hiện **badge tài khoản đang dùng proxy đó**
+  (lấy từ `rows` truyền vào `AccountDialog`) + nút "Không dùng proxy".
+- **Hộp thoại thêm/sửa tài khoản bỏ 3 tab** → 1 form duy nhất cuộn được (`ScrollArea`, các mục *Cơ bản → Hạn mức →
+  Nâng cao* xếp dọc) — không phải click qua lại giữa các tab.
+
 - **Nhãn menu/popover bị xuống dòng** (vd "Chỉ Kiếm thêm (Keep earning)" thành 2 hàng khi mở):
   `ui/dropdown-menu.tsx` + `ui/context-menu.tsx` thiếu `whitespace-nowrap`, và các menu đặt **width cứng**
   (`w-48/52/56/60/64`) nên nhãn dài bị bẻ dòng. Sửa: thêm `whitespace-nowrap` cho Item/Checkbox/Radio/SubTrigger/Label

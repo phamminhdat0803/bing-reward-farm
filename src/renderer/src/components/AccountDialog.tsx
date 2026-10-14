@@ -12,9 +12,11 @@ import {
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
 import { Switch } from '@renderer/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
+import { ScrollArea } from '@renderer/components/ui/scroll-area'
+import { ProxyPickerDialog } from '@renderer/components/ProxyPickerDialog'
 import { Check } from 'lucide-react'
-import type { DetectedBrowser, Profile, ProxyItem, ProxyTestResult } from '@shared/types'
+import { Badge } from '@renderer/components/ui/badge'
+import type { DetectedBrowser, Profile, ProxyItem, ProxyTestResult, RowState } from '@shared/types'
 
 const FALLBACK: DetectedBrowser[] = [
   { id: 'msedge', name: 'Microsoft Edge', exe: '', version: null, chromium: true, autoSignInRisk: true },
@@ -25,12 +27,15 @@ export function AccountDialog({
   open,
   onOpenChange,
   initial,
-  onSubmit
+  onSubmit,
+  rows = []
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   initial: Profile | null
   onSubmit: (patch: Partial<Profile>) => Promise<void>
+  /** để hộp chọn proxy biết proxy nào đang gắn cho tài khoản nào */
+  rows?: RowState[]
 }): React.JSX.Element {
   const [name, setName] = useState('')
   const [account, setAccount] = useState('')
@@ -40,7 +45,7 @@ export function AccountDialog({
   const [channel, setChannel] = useState('msedge')
   const [proxyId, setProxyId] = useState('')
   const [proxyList, setProxyList] = useState<ProxyItem[]>([])
-  const [manageProxyHint, setManageProxyHint] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [testingProxy, setTestingProxy] = useState(false)
   const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null)
   const [browsers, setBrowsers] = useState<DetectedBrowser[]>([])
@@ -65,7 +70,7 @@ export function AccountDialog({
     setNote(initial?.note ?? '')
     setChannel(initial?.channel ?? 'msedge')
     setProxyId(initial?.proxyId ?? '')
-    setManageProxyHint(false)
+    setPickerOpen(false)
     setProxyResult(null)
     setHeadless(initial?.headless ?? false)
 
@@ -161,15 +166,11 @@ export function AccountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="basic" className="flex min-h-0 flex-1 flex-col">
-          <TabsList className="grid w-full shrink-0 grid-cols-3">
-            <TabsTrigger value="basic">Cơ bản</TabsTrigger>
-            <TabsTrigger value="limit">Hạn mức</TabsTrigger>
-            <TabsTrigger value="adv">Nâng cao</TabsTrigger>
-          </TabsList>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="space-y-3 pr-2 pb-1">
 
-          {/* ---------- TAB 1: CƠ BẢN ---------- */}
-          <TabsContent value="basic" className="mt-3 min-h-0 flex-1 space-y-3 overflow-auto pr-0.5">
+          {/* ---------- CƠ BẢN ---------- */}
+          <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="a-name">Tên tài khoản</Label>
@@ -252,10 +253,10 @@ export function AccountDialog({
               <Label htmlFor="a-note">Ghi chú</Label>
               <Input id="a-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="tuỳ chọn" />
             </div>
-          </TabsContent>
+          </div>
 
-          {/* ---------- TAB 2: HẠN MỨC ---------- */}
-          <TabsContent value="limit" className="mt-3 min-h-0 flex-1 space-y-3 overflow-auto pr-0.5">
+          {/* ---------- HẠN MỨC ---------- */}
+          <div className="space-y-3">
             <div className="grid gap-1.5">
               <Label>Hạn mức tìm kiếm (cấp độ tài khoản)</Label>
               <div className="grid gap-1.5">
@@ -335,122 +336,86 @@ export function AccountDialog({
                 </div>
               </div>
             ) : null}
-          </TabsContent>
+          </div>
 
-          {/* ---------- TAB 3: NÂNG CAO ---------- */}
-          <TabsContent value="adv" className="mt-3 min-h-0 flex-1 space-y-3 overflow-auto pr-0.5">
-            <div className="grid gap-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Proxy (chọn từ kho)</Label>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="tertiary"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-[11.5px]"
-                    disabled={testingProxy || !selectedProxy}
-                    onClick={handleTestProxy}
-                  >
-                    <Wifi className={testingProxy ? 'size-3 animate-spin' : 'size-3'} />
-                    {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="tertiary"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-[11.5px]"
-                    onClick={() => setManageProxyHint(true)}
-                  >
-                    Quản lý kho proxy
-                  </Button>
-                </div>
-              </div>
-              <div className="grid gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProxyId('')
-                    setProxyResult(null)
-                  }}
-                  className={
-                    'flex items-center justify-between rounded-[10px] border px-2.5 py-1.5 text-left transition ' +
-                    (proxyId === ''
-                      ? 'border-[var(--ink)] bg-[var(--surface)]'
-                      : 'border-[var(--hairline)] hover:bg-[var(--surface)]')
-                  }
-                >
-                  <div>
-                    <div className="text-[13px] font-semibold">Không dùng proxy</div>
-                    <div className="mm-micro">Đi trực tiếp bằng mạng của máy</div>
+          {/* ---------- NÂNG CAO ---------- */}
+          <div className="space-y-3">
+            <div>
+                <div className="grid gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label>Proxy</Label>
+                    <Button
+                      type="button"
+                      variant="tertiary"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[11.5px]"
+                      disabled={testingProxy || !selectedProxy}
+                      onClick={handleTestProxy}
+                    >
+                      <Wifi className={testingProxy ? 'size-3 animate-spin' : 'size-3'} />
+                      {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra'}
+                    </Button>
                   </div>
-                  {proxyId === '' ? <Check className="size-4 shrink-0" /> : null}
-                </button>
-                {proxyList.map((p) => (
+
+                  {/* 1 card duy nhat: bam vao mo hop chon proxy (co tim kiem + sap xep) */}
                   <button
-                    key={p.id}
                     type="button"
-                    onClick={() => {
-                      setProxyId(p.id)
-                      setProxyResult(p.lastTest ?? null)
-                    }}
-                    className={
-                      'flex items-center justify-between gap-3 rounded-[10px] border px-2.5 py-1.5 text-left transition ' +
-                      (proxyId === p.id
-                        ? 'border-[var(--ink)] bg-[var(--surface)]'
-                        : 'border-[var(--hairline)] hover:bg-[var(--surface)]')
-                    }
+                    onClick={() => setPickerOpen(true)}
+                    className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--hairline)] px-3 py-2 text-left transition hover:bg-[var(--surface)]"
                   >
                     <div className="min-w-0">
-                      <div className="text-[13px] font-semibold">{p.label}</div>
-                      <div className="mm-micro truncate">
-                        {p.url}
-                        {p.lastTest?.ok
-                          ? ` · IP ${p.lastTest.ip}${p.lastTest.country ? ` (${p.lastTest.country})` : ''}`
-                          : p.lastTest
-                            ? ' · test lỗi'
-                            : ' · chưa test'}
-                      </div>
+                      {selectedProxy ? (
+                        <>
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <span className="truncate text-[13px] font-semibold">{selectedProxy.label}</span>
+                            {selectedProxy.lastTest?.ok ? (
+                              <Badge variant="success">
+                                {selectedProxy.lastTest.latency != null ? `${selectedProxy.lastTest.latency}ms` : 'OK'}
+                              </Badge>
+                            ) : selectedProxy.lastTest ? (
+                              <Badge variant="destructive">LỖI</Badge>
+                            ) : (
+                              <Badge variant="outline">chưa test</Badge>
+                            )}
+                          </div>
+                          <div className="mm-micro truncate">{selectedProxy.url}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-[13px] font-semibold">Không dùng proxy</div>
+                          <div className="mm-micro">Bấm để chọn proxy từ kho ({proxyList.length} proxy)</div>
+                        </>
+                      )}
                     </div>
-                    {proxyId === p.id ? <Check className="size-4 shrink-0" /> : null}
+                    <span className="shrink-0 text-[12px] font-medium text-[var(--brand-blue-deep)]">Chọn proxy…</span>
                   </button>
-                ))}
-                {proxyList.length === 0 ? (
-                  <div className="mm-micro">
-                    Kho proxy đang trống — sang tab <b>Proxy</b> để thêm, sau đó quay lại đây chọn.
-                  </div>
-                ) : null}
-              </div>
-              {proxyResult ? (
-                <div
-                  className={
-                    'flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12px] ' +
-                    (proxyResult.ok
-                      ? 'bg-[var(--success-bg)] text-[var(--success-text)]'
-                      : 'bg-[#fdf2f2] text-[var(--error)]')
-                  }
-                >
-                  {proxyResult.ok ? (
-                    <>
-                      <span className="font-semibold">✓ IP: {proxyResult.ip}</span>
-                      {proxyResult.country ? (
-                        <span>
-                          ({proxyResult.country}
-                          {proxyResult.city ? `, ${proxyResult.city}` : ''})
-                        </span>
-                      ) : null}
-                      {proxyResult.latency ? <span className="opacity-70">· {proxyResult.latency}ms</span> : null}
-                    </>
-                  ) : (
-                    <span>✕ Lỗi: {proxyResult.error}</span>
-                  )}
+
+                  {proxyResult ? (
+                    <div
+                      className={
+                        'flex items-center gap-1.5 rounded-[8px] px-2.5 py-1.5 text-[12px] ' +
+                        (proxyResult.ok
+                          ? 'bg-[var(--success-bg)] text-[var(--success-text)]'
+                          : 'bg-[#fdf2f2] text-[var(--error)]')
+                      }
+                    >
+                      {proxyResult.ok ? (
+                        <>
+                          <span className="font-semibold">✓ IP: {proxyResult.ip}</span>
+                          {proxyResult.country ? (
+                            <span>
+                              ({proxyResult.country}
+                              {proxyResult.city ? `, ${proxyResult.city}` : ''})
+                            </span>
+                          ) : null}
+                          {proxyResult.latency ? <span className="opacity-70">· {proxyResult.latency}ms</span> : null}
+                        </>
+                      ) : (
+                        <span>✕ Lỗi: {proxyResult.error}</span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-              {manageProxyHint ? (
-                <div className="mm-micro">
-                  Đóng hộp này, bấm tab <b>Proxy</b> trên thanh trên để thêm/sửa/kiểm tra proxy, rồi mở lại tài khoản
-                  để gán.
-                </div>
-              ) : null}
             </div>
 
             <div className="flex items-center justify-between rounded-[10px] border border-[var(--hairline)] px-3 py-2">
@@ -460,8 +425,9 @@ export function AccountDialog({
               </div>
               <Switch checked={headless} onCheckedChange={setHeadless} />
             </div>
-          </TabsContent>
-        </Tabs>
+          </div>
+          </div>
+        </ScrollArea>
 
         <DialogFooter className="shrink-0 pt-1">
           <Button variant="tertiary" onClick={() => onOpenChange(false)}>
@@ -472,6 +438,18 @@ export function AccountDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <ProxyPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        items={proxyList}
+        rows={rows}
+        value={proxyId}
+        onPick={(id) => {
+          setProxyId(id)
+          setProxyResult(proxyList.find((x) => x.id === id)?.lastTest ?? null)
+        }}
+      />
+
     </Dialog>
   )
 }
