@@ -382,10 +382,6 @@ if (process.env.BRF_TEST_ALL) {
           await refreshMany(profiles, {
             onLine: (line: LogLine) => broadcast('log:line', line),
             onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-            onProgress: (pr) => {
-              broadcast('run:progress', pr)
-              if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
-            },
             onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
           })
         })()
@@ -433,6 +429,7 @@ if (process.env.BRF_TEST_ALL) {
           .filter(Boolean)
         const hooks = (): {
           onLine: (line: LogLine) => void
+          onStatusChange?: (profileId: string, running: boolean) => void
           onSnapshot: (snap: never) => void
           onProgress: (pr: never) => void
         } => ({
@@ -623,10 +620,6 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     const res = await refreshMany(profiles, {
       onLine: (line: LogLine) => broadcast('log:line', line),
       onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-      onProgress: (pr) => {
-        broadcast('run:progress', pr)
-        if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
-      },
       onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId }),
       gapMs: getSettings().refreshGapMs
     })
@@ -706,10 +699,6 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
       await refreshMany(stale, {
         onLine: (line) => broadcast('log:line', line),
         onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-        onProgress: (pr) => {
-          broadcast('run:progress', pr)
-          if (process.env.BRF_AUTORUN) console.log('[run:progress]', JSON.stringify(pr))
-        },
         onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId })
       })
     }

@@ -102,7 +102,7 @@ const api = {
   onRunProgress: (
     cb: (p: { profileId: string; kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }) => void
   ): (() => void) => {
-    const handler = (_e: unknown, p: never): void => cb(p)
+    const handler = (_e: unknown, p: { profileId: string; kind: string; done: number; total: number; points: number | null; today: number | null; gained: number }): void => cb(p)
     ipcRenderer.on('run:progress', handler)
     return () => ipcRenderer.removeListener('run:progress', handler)
   },

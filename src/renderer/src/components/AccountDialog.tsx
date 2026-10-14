@@ -11,7 +11,6 @@ import {
 } from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
-import { Switch } from '@renderer/components/ui/switch'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { ProxyPickerDialog } from '@renderer/components/ProxyPickerDialog'
 import { Check } from 'lucide-react'

@@ -442,7 +442,7 @@ export default function App(): React.JSX.Element {
               >
                 <Loader2 className="size-5 animate-spin text-[var(--brand-blue-deep)]" />
                 <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[var(--error)] text-[11px] font-semibold text-white">
-                  {running.length}
+                  {runningRows.length}
                 </span>
               </button>
             </DropdownMenuTrigger>
