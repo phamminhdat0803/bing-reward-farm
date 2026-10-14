@@ -52,6 +52,8 @@ export type CoreConfig = {
     maxItems: number
     waitAfterClickMs: { min: number; max: number }
     settleMs: number
+    /** Task kieu wallpaper ("Set as Wallpaper"): cho toi da bao nhieu ms truoc khi bam nut */
+    wallpaperWaitMs: number
   }
   queries: { file?: string; mixGenerator: boolean }
   log: { dir: string; level?: LogLevel }
@@ -91,7 +93,8 @@ export const DEFAULTS: CoreConfig = {
     enabled: true,
     maxItems: 12,
     waitAfterClickMs: { min: 5000, max: 9000 },
-    settleMs: 20000
+    settleMs: 20000,
+    wallpaperWaitMs: 20000
   },
   queries: { mixGenerator: true },
   log: { dir: '', level: 'info' }
@@ -131,6 +134,10 @@ export type DailySetResult = {
 export type EarnResult = {
   status: string
   items: { label: string; href: string; points: number | null; visited: boolean }[]
+  /** The bi khoa (vd "Silver level required") — khong the kiem diem hom nay */
+  blocked: { label: string; points: number | null; reason: string }[]
+  /** Tong diem dang bi khoa boi cap do */
+  blockedPoints: number
   /** "x/y" cua muc Keep earning neu doc duoc */
   sectionBefore: string | null
   sectionAfter: string | null

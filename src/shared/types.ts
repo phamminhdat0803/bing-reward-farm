@@ -59,7 +59,13 @@ export type Snapshot = {
   mobile: Progress
   offers: number | null
   /** "Keep earning x/y" trên /earn — null = tài khoản/khu vực không có mục này */
-  earn: Progress
+  earn:
+    | (Progress & {
+        /** Điểm KHÔNG kiếm được vì thẻ bị khoá cấp độ (vd "Silver level required") */
+        blockedPoints?: number
+        blocked?: { label: string; points: number | null; reason: string }[]
+      })
+    | null
   month: number | null
   year: number | null
   lifetime: number | null

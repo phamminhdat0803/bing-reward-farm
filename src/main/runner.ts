@@ -33,7 +33,13 @@ export type Snapshot = {
   mobile: { progress: number; max: number } | null
   offers: number | null
   /** Muc "Keep earning x/y" tren /earn — null nghia la tai khoan/khu vuc khong co muc nay */
-  earn: { progress: number; max: number } | null
+  earn: {
+    progress: number
+    max: number
+    /** Diem KHONG kiem duoc vi the bi khoa cap do (vd "Silver level required") */
+    blockedPoints?: number
+    blocked?: { label: string; points: number | null; reason: string }[]
+  } | null
   month: number | null
   year: number | null
   lifetime: number | null
@@ -457,6 +463,15 @@ export async function startRun(
               saveState(stateFile(profile), st)
               const snap = await readSnapshotFromSession(s, profile, log2, page).catch(() => null)
               if (snap) {
+                // Dinh kem so diem bi khoa cap do de UI hien "bao nhieu diem dang bi chan"
+                const earnRes = summary.earn as {
+                  blockedPoints?: number
+                  blocked?: { label: string; points: number | null; reason: string }[]
+                }
+                if (snap.earn) {
+                  snap.earn.blockedPoints = earnRes?.blockedPoints ?? 0
+                  snap.earn.blocked = earnRes?.blocked ?? []
+                }
                 lastSnap = snap
                 cache.put(snap)
                 hooks.onSnapshot?.(snap)
@@ -473,6 +488,15 @@ export async function startRun(
               saveState(stateFile(profile), st)
               const snap = await readSnapshotFromSession(s, profile, log2, page).catch(() => null)
               if (snap) {
+                // Dinh kem so diem bi khoa cap do de UI hien "bao nhieu diem dang bi chan"
+                const earnRes = summary.earn as {
+                  blockedPoints?: number
+                  blocked?: { label: string; points: number | null; reason: string }[]
+                }
+                if (snap.earn) {
+                  snap.earn.blockedPoints = earnRes?.blockedPoints ?? 0
+                  snap.earn.blocked = earnRes?.blocked ?? []
+                }
                 lastSnap = snap
                 cache.put(snap)
                 hooks.onSnapshot?.(snap)
@@ -491,6 +515,15 @@ export async function startRun(
               saveState(stateFile(profile), st)
               const snap = await readSnapshotFromSession(s, profile, log2, page).catch(() => null)
               if (snap) {
+                // Dinh kem so diem bi khoa cap do de UI hien "bao nhieu diem dang bi chan"
+                const earnRes = summary.earn as {
+                  blockedPoints?: number
+                  blocked?: { label: string; points: number | null; reason: string }[]
+                }
+                if (snap.earn) {
+                  snap.earn.blockedPoints = earnRes?.blockedPoints ?? 0
+                  snap.earn.blocked = earnRes?.blocked ?? []
+                }
                 lastSnap = snap
                 cache.put(snap)
                 hooks.onSnapshot?.(snap)

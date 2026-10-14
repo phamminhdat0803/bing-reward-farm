@@ -7,7 +7,14 @@ import { EARN_URL, readCounters } from './rewards'
 import { cancellableSleep, randInt } from './logger'
 import type { CoreConfig, EarnResult, Logger } from './types'
 
-type OfferCard = { href: string; text: string; points: number | null }
+type OfferCard = {
+  href: string
+  text: string
+  points: number | null
+  /** The bi khoa boi cap do (vd "Silver level required") */
+  locked: boolean
+  lockReason: string | null
+}
 
 /** Doc cac the daily-offer chua hoan thanh trong muc "Keep earning" cua /earn. */
 async function readOfferCards(page: Page): Promise<OfferCard[]> {
@@ -16,11 +23,29 @@ async function readOfferCards(page: Page): Promise<OfferCard[]> {
     const out: OfferCard[] = []
     const seen = new Set<string>()
 
-    const push = (href: string, text: string): void => {
+    // Ghi chu khoa cap do nam o the cha (khong nam trong <a>) nen phai doc ca container
+    const LOCK =
+      /(silver|gold|bronze|platinum)\s*(level)?\s*required|level\s*\d+\s*required|required\s*(silver|gold|level)|hạng\s*(bạc|vàng|đồng|kim cương)|yêu cầu\s*(cấp|hạng)|cần\s*(hạng|cấp)|đạt\s*(hạng|cấp)/i
+
+    const containerText = (a: HTMLElement): string => {
+      let el: HTMLElement | null = a
+      for (let i = 0; i < 3 && el?.parentElement; i += 1) el = el.parentElement
+      return norm((el ?? a).innerText || (el ?? a).textContent).slice(0, 400)
+    }
+
+    const push = (href: string, text: string, extra?: string): void => {
       if (!href || seen.has(href)) return
       seen.add(href)
       const m = text.match(/\+\s*(\d{1,4})/) ?? text.match(/(\d{1,4})\s*(?:points?|điểm)/i)
-      out.push({ href, text: text.slice(0, 140), points: m ? Number(m[1]) : null })
+      const scope = `${text} ${extra ?? ''}`
+      const lock = scope.match(LOCK)
+      out.push({
+        href,
+        text: text.slice(0, 140),
+        points: m ? Number(m[1]) : null,
+        locked: Boolean(lock),
+        lockReason: lock ? lock[0].replace(/\s+/g, ' ').trim() : null
+      })
     }
 
     const skip = (href: string, text: string): boolean =>
@@ -31,7 +56,7 @@ async function readOfferCards(page: Page): Promise<OfferCard[]> {
       const a = el as HTMLAnchorElement
       const text = norm(a.innerText || a.textContent)
       if (skip(a.href, text)) continue
-      push(a.href, text)
+      push(a.href, text, containerText(a))
     }
 
     // 2) Du phong cho khu vuc khac (vd Dai Loan): the co nhan "+N" va tro toi bing.com search/spotlight
@@ -45,7 +70,7 @@ async function readOfferCards(page: Page): Promise<OfferCard[]> {
         if (!/\+\s*\d{1,4}/.test(text)) continue
         const rect = a.getBoundingClientRect()
         if (rect.width < 80 || rect.height < 30) continue
-        push(href, text)
+        push(href, text, containerText(a))
       }
     }
 
@@ -80,6 +105,8 @@ export async function runEarnPass(args: {
     return {
       status: 'not-signed-in',
       items: [],
+      blocked: [],
+      blockedPoints: 0,
       sectionBefore: null,
       sectionAfter: null,
       pointsBefore: null,
@@ -93,7 +120,7 @@ export async function runEarnPass(args: {
   await cancellableSleep(4000, shouldStop)
   if (shouldStop?.()) {
     if (ownPage) await page.close()
-    return { status: 'stopped', items: [], sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
+    return { status: 'stopped', items: [], blocked: [], blockedPoints: 0, sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
   }
   // cuon het trang cho lazy-render roi ve dau
   await page
@@ -108,7 +135,7 @@ export async function runEarnPass(args: {
   await cancellableSleep(1500, shouldStop)
   if (shouldStop?.()) {
     if (ownPage) await page.close()
-    return { status: 'stopped', items: [], sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
+    return { status: 'stopped', items: [], blocked: [], blockedPoints: 0, sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
   }
 
   const pointsBefore = snap.points
@@ -121,11 +148,21 @@ export async function runEarnPass(args: {
     `[earn] Keep earning ${sectionBefore ?? '?'} | ${cards.length} the kiem duoc diem | diem=${pointsBefore ?? '?'} hom-nay=${todayBefore ?? '?'}`
   )
 
+  const blocked: EarnResult['blocked'] = []
   let done = 0
   for (const card of cards) {
     if (shouldStop?.()) {
       log.warn('[earn] nguoi dung dung')
       break
+    }
+    const label0 = (card.text || card.href).slice(0, 70)
+    if (card.locked) {
+      // The bi khoa cap do: khong click duoc, ghi lai de UI biet dang bi chan bao nhieu diem
+      blocked.push({ label: label0, points: card.points, reason: card.lockReason ?? 'yêu cầu cấp độ' })
+      log.info(
+        `[earn] KHOA: ${label0}${card.points ? ` (+${card.points} điểm)` : ''} - ${card.lockReason ?? 'yêu cầu cấp độ'}`
+      )
+      continue
     }
     if (done >= cfg.earn.maxItems) break
     done += 1
@@ -148,9 +185,41 @@ export async function runEarnPass(args: {
           await tab.waitForLoadState('domcontentloaded').catch(() => {})
         }
         await cancellableSleep(randInt(cfg.earn.waitAfterClickMs.min, cfg.earn.waitAfterClickMs.max), shouldStop)
+
+        // Task kieu wallpaper ("Get N points for a ... makeover"): phai CHO trang render roi bam
+        // "Set as Wallpaper" moi tinh la hoan thanh (do 2026-10-14).
+        const wallpaperBtn = tab
+          .getByRole('button', {
+            name: /set as wallpaper|set as background|use as wallpaper|đặt làm hình nền|làm hình nền/i
+          })
+          .first()
+        let wallpaper = false
+        try {
+          if (await wallpaperBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+            await wallpaperBtn.click({ timeout: 8000 }).catch(() => {})
+            wallpaper = true
+            await cancellableSleep(1500, shouldStop)
+            log.info(`[earn] wallpaper: da bam "Set as Wallpaper" sau ~${Math.round(cfg.earn.wallpaperWaitMs / 1000)}s cho`)
+          } else {
+            // Nut chua hien (anh con dang tao) -> cho toi wallpaperWaitMs roi bam lai
+            const appeared = await wallpaperBtn
+              .waitFor({ state: 'visible', timeout: cfg.earn.wallpaperWaitMs })
+              .then(() => true)
+              .catch(() => false)
+            if (appeared) {
+              await wallpaperBtn.click({ timeout: 8000 }).catch(() => {})
+              wallpaper = true
+              await cancellableSleep(1500, shouldStop)
+              log.info('[earn] wallpaper: nut hien sau khi cho -> da bam')
+            }
+          }
+        } catch {
+          /* khong phai task wallpaper */
+        }
+
         items.push({ label, href: card.href, points: card.points, visited: true })
         log.info(
-          `[earn] da click${card.points ? ` +${card.points}d` : ''}: ${label}${opened ? ' [tab moi]' : ' [goto]'}`
+          `[earn] da click${card.points ? ` +${card.points}d` : ''}: ${label}${opened ? ' [tab moi]' : ' [goto]'}${wallpaper ? ' + wallpaper' : ''}`
         )
       } finally {
         await tab.close().catch(() => {})
@@ -174,13 +243,16 @@ export async function runEarnPass(args: {
   if (ownPage) await page.close()
 
   const gained = (last?.points ?? 0) - (pointsBefore ?? 0)
+  const blockedPoints = blocked.reduce((sum, b) => sum + (b.points ?? 0), 0)
   log.info(
-    `[earn] ket thuc: ${items.length} the | Keep earning ${sectionBefore ?? '?'} -> ${sectionAfter ?? '?'} | diem ${pointsBefore ?? '?'} -> ${last?.points ?? '?'} (${gained >= 0 ? '+' : ''}${gained})`
+    `[earn] ket thuc: ${items.length} the | ${blocked.length} the bi khoa (${blockedPoints} diem khong kiem duoc do cap do) | Keep earning ${sectionBefore ?? '?'} -> ${sectionAfter ?? '?'} | diem ${pointsBefore ?? '?'} -> ${last?.points ?? '?'} (${gained >= 0 ? '+' : ''}${gained})`
   )
 
   return {
     status: items.length === 0 ? 'nothing-to-do' : gained > 0 ? 'credited' : 'visited-pending',
     items,
+    blocked,
+    blockedPoints,
     sectionBefore,
     sectionAfter,
     pointsBefore: pointsBefore ?? null,

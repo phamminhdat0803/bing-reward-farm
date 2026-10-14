@@ -333,7 +333,24 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     {!hasData ? (
                       <span className="text-[13px] text-[var(--stone)]">—</span>
                     ) : c?.earn ? (
-                      <MiniBar progress={c.earn.progress} max={c.earn.max} />
+                      <div className="flex items-center gap-1.5">
+                  <MiniBar progress={c.earn.progress} max={c.earn.max} />
+                  {c.earn.blockedPoints ? (
+                    <span
+                      className="shrink-0 rounded bg-[var(--error)]/10 px-1 text-[10.5px] font-semibold text-[var(--error)]"
+                      title={
+                        'Không kiếm được ' +
+                        c.earn.blockedPoints +
+                        ' điểm vì thẻ bị khoá cấp độ:\n' +
+                        (c.earn.blocked ?? [])
+                          .map((b) => `• ${b.label}${b.points ? ` (+${b.points})` : ''} — ${b.reason}`)
+                          .join('\n')
+                      }
+                    >
+                      -{c.earn.blockedPoints} khoá
+                    </span>
+                  ) : null}
+                </div>
                     ) : (
                       <span className="text-[12px] text-[var(--stone)]">không có</span>
                     )}
