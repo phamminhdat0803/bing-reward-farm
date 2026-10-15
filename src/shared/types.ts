@@ -20,6 +20,10 @@ export type Profile = {
   deviceSerial?: string | null
   /** Cong CDP forward sang dien thoai (mac dinh 9411) */
   devicePort?: number | null
+  /** User Android chua app (0 = chinh, 10 = work profile) */
+  deviceUser?: number | null
+  /** Package cua ban Bing app duoc map cho tai khoan nay (com.microsoft.bing hoac dkapp.*) */
+  devicePackage?: string | null
   /** Id proxy trong kho (tab "Proxy") — uu tien hon `proxy` */
   proxyId?: string | null
   /** Proxy du phong theo thu tu (sau proxy chinh) */
@@ -130,4 +134,41 @@ export type DetectedBrowser = {
   version: string | null
   chromium: boolean
   autoSignInRisk: boolean
+}
+
+/** 1 thiet bi Android do duoc qua adb. */
+export type PhoneDevice = {
+  serial: string
+  model: string
+  android: string
+  batteryPct: number | null
+  charging: boolean
+  screenOn: boolean
+  chromeVersion: string | null
+  status: 'online' | 'offline' | 'unauthorized'
+  lastSeenAt: string
+  error?: string
+}
+
+/** 1 ban Bing app tren dien thoai: app goc, ban work profile, hoac app clone (dkapp.*). */
+export type PhoneApp = {
+  id: string
+  serial: string
+  user: number
+  pkg: string
+  kind: 'bing' | 'clone'
+  label: string
+  /** versionCode — trung voi Bing thi gan nhu chac chan la ban clone cua Bing */
+  version: string | null
+  hint: string
+  lastSeenAt: string
+  online: boolean
+}
+
+export type PhoneSnapshot = {
+  at: string
+  adbAvailable: boolean
+  devices: PhoneDevice[]
+  apps: PhoneApp[]
+  error?: string
 }

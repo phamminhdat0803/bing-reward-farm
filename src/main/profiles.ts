@@ -28,6 +28,10 @@ export type Profile = {
   deviceSerial?: string | null
   /** Cong CDP forward sang dien thoai (mac dinh 9411) */
   devicePort?: number | null
+  /** User Android chua app (0 = chinh, 10 = work profile) */
+  deviceUser?: number | null
+  /** Package ban Bing app duoc map (com.microsoft.bing hoac dkapp.*) */
+  devicePackage?: string | null
   note?: string
   createdAt: string
   lastRunAt: string | null
@@ -116,6 +120,8 @@ export function addProfile(input: Partial<Profile>): Profile {
     proxy: input.proxy ? input.proxy.trim() : null,
     deviceSerial: input.deviceSerial ?? null,
     devicePort: input.devicePort ?? 9411,
+    deviceUser: input.deviceUser ?? null,
+    devicePackage: input.devicePackage ?? null,
     proxyId: input.proxyId ?? null,
     proxyFallbacks: input.proxyFallbacks ?? null,
     note: input.note,

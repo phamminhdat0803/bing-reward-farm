@@ -7,6 +7,8 @@ import { browserState, closeBrowser, openBrowser, verifyRunningBrowsers } from '
 import { openLoginWindow, queueView, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
+import { detectPhoneApps, getPhoneSnapshot } from './phone-apps'
+import { checkInCurrentBingAccount, launchBing, readCurrentBingAccount, readSignedInAccount, signOutBing, startSignIn } from './phone'
 import { testProxy } from './proxy-test'
 import { addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
@@ -238,6 +240,151 @@ if (process.env.BRF_TEST_ALL) {
     })()
   }
 
+  // Tien ich dev: BRF_PHONE_CHECKIN=<serial|1> -> chay diem danh that qua app (khong can bam UI)
+  if (process.env.BRF_PHONE_CHECKIN) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const want = String(process.env.BRF_PHONE_CHECKIN)
+          const serial = want === '1' ? (getPhoneSnapshot().devices[0]?.serial ?? '') : want
+          if (!serial) {
+            console.log('[phone-checkin] khong co serial')
+            return
+          }
+          console.log(`[phone-checkin] bat dau tren ${serial} …`)
+          const r = await checkInCurrentBingAccount(serial, 0)
+          console.log(`[phone-checkin] ket qua: ${JSON.stringify(r)}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 8000))
+    })
+  }
+
+  // Tien ich dev: BRF_PHONE_ASSIGN=1 -> kiem thu tab Dien thoai: thead sticky + gan truc tiep (tu hoan tac)
+  if (process.env.BRF_PHONE_ASSIGN) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          try {
+            // 1. thead co sticky khong (cuon dung viewport cua ScrollArea roi do vi tri)
+            const sticky = await wc.executeJavaScript(`(async () => {
+              const wrap = document.querySelector('[data-slot="table-container"]')
+              const vp = wrap?.querySelector('[data-slot="scroll-area-viewport"]') || wrap
+              const thead = document.querySelector('[data-slot="table-container"] thead')
+              if (!vp || !thead) return { error: 'khong thay bang' }
+              const before = Math.round(thead.getBoundingClientRect().top)
+              vp.scrollTop = 400
+              await new Promise((r) => setTimeout(r, 500))
+              const after = Math.round(thead.getBoundingClientRect().top)
+              return {
+                truoc: before,
+                sau: after,
+                position: getComputedStyle(thead).position,
+                scrollTop: Math.round(vp.scrollTop),
+                scrollHeight: vp.scrollHeight,
+                clientHeight: vp.clientHeight,
+                stickyOk: Math.abs(after - before) < 40 && vp.scrollTop > 0
+              }
+            })()`)
+            console.log(`[phone-assign] thead: ${JSON.stringify(sticky)}`)
+
+            // 2. gan truc tiep: Radix mo menu bang pointerdown -> phai ban PointerEvent that
+            const assign = await wc.executeJavaScript(`(async () => {
+              const fire = (el, type) => {
+                const r = el.getBoundingClientRect()
+                const opts = { bubbles: true, cancelable: true, composed: true, pointerType: 'mouse', button: 0, buttons: type === 'pointerdown' ? 1 : 0, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }
+                el.dispatchEvent(new PointerEvent(type, opts))
+                if (type === 'pointerup') el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: opts.clientX, clientY: opts.clientY }))
+              }
+              const rows = [...document.querySelectorAll('tbody tr')]
+              const row = rows.find((r) => /Bing clone/i.test(r.textContent || '')) || rows.find((r) => /com\\.microsoft\\.bing/.test(r.textContent || ''))
+              if (!row) return { error: 'khong thay dong app' }
+              const btn = [...row.querySelectorAll('button')].find((b) => /Gán acc|thêm acc/.test(b.textContent || ''))
+              if (!btn) return { error: 'khong thay nut Gan acc' }
+              fire(btn, 'pointerdown')
+              fire(btn, 'pointerup')
+              await new Promise((r) => setTimeout(r, 1000))
+              const items = [...document.querySelectorAll('[role="menuitemcheckbox"]')]
+              if (!items.length) return { error: 'menu khong mo', soRole: document.querySelectorAll('[role]').length }
+              const label = (items[0].textContent || '').trim().slice(0, 60)
+              items[0].click()
+              await new Promise((r) => setTimeout(r, 2000))
+              const profiles = await window.api.listProfiles()
+              return {
+                clicked: label,
+                mapped: profiles.filter((p) => p.devicePackage).map((p) => ({ name: p.name, pkg: p.devicePackage, user: p.deviceUser }))
+              }
+            })()`)
+            console.log(`[phone-assign] gan: ${JSON.stringify(assign)}`)
+
+            await new Promise((r) => setTimeout(r, 1000))
+            // 3. hoan tac: bo gan lai
+            const undo = await wc.executeJavaScript(`(async () => {
+              const profiles = await window.api.listProfiles()
+              const mapped = profiles.filter((p) => p.devicePackage)
+              for (const p of mapped) {
+                await window.api.updateProfile(p.id, { deviceSerial: null, deviceUser: null, devicePackage: null })
+              }
+              const after = await window.api.listProfiles()
+              return { cleared: mapped.map((p) => p.name), conLai: after.filter((p) => p.devicePackage).length }
+            })()`)
+            console.log(`[phone-assign] hoan tac: ${JSON.stringify(undo)}`)
+
+            const img = await wc.capturePage()
+            const dir = join(process.cwd(), 'docs')
+            mkdirSync(dir, { recursive: true })
+            const file = join(dir, `shot-phone-${Date.now()}.png`)
+            writeFileSync(file, img.toPNG())
+            console.log(`[phone-assign] anh: ${file}`)
+          } catch (e) {
+            console.error('[phone-assign] loi', e)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
+    })
+  }
+
+  // Tien ich dev: BRF_DIALOG_PHONE=1 -> mo hop "Them tai khoan", cuon toi muc "Dien thoai" va chup anh
+  if (process.env.BRF_DIALOG_PHONE) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          try {
+            const r = await wc.executeJavaScript(`(async () => {
+              const btn = [...document.querySelectorAll('button')].find((b) => /Thêm tài khoản/.test(b.textContent || ''))
+              if (!btn) return { error: 'khong thay nut Them tai khoan' }
+              btn.click()
+              await new Promise((res) => setTimeout(res, 1500))
+              const dlg = document.querySelector('[role="dialog"]')
+              const sels = dlg ? [...dlg.querySelectorAll('select')] : []
+              const info = sels.map((s) => ({
+                opts: s.options.length,
+                sample: [...s.options].slice(0, 4).map((o) => (o.textContent || '').slice(0, 80))
+              }))
+              const heading = dlg ? /Điện thoại — bản Bing app/.test(dlg.textContent || '') : false
+              const sc = dlg?.querySelector('[data-slot="scroll-area-viewport"]') || dlg
+              if (sc) sc.scrollTop = sc.scrollHeight
+              return { selectCount: sels.length, info, heading, scrollTop: sc ? Math.round(sc.scrollTop) : null }
+            })()`)
+            console.log(`[dialog-phone] ${JSON.stringify(r)}`)
+            await new Promise((res) => setTimeout(res, 1500))
+            const img = await wc.capturePage()
+            const dir = join(process.cwd(), 'docs')
+            mkdirSync(dir, { recursive: true })
+            const file = join(dir, `shot-dialog-phone-${Date.now()}.png`)
+            writeFileSync(file, img.toPNG())
+            console.log(`[dialog-phone] anh: ${file}`)
+          } catch (e) {
+            console.error('[dialog-phone] loi', e)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
   // Tien ich dev: BRF_TEST_PROXYFAB=1 -> chay kiem tra toan bo proxy, chup anh luc dang chay
   // (tab Proxy), roi CHUYEN SANG TAB TAI KHOAN va chup lai de chung minh cuc tron tien do khong mat.
   if (process.env.BRF_TEST_PROXYFAB) {
@@ -315,6 +462,24 @@ if (process.env.BRF_TEST_ALL) {
             .split(/\r?\n/)
             .some((l) => new RegExp(`:${target.cdpPort}\\s`).test(l) && /LISTENING/i.test(l))
           console.log(`[closetest] cong ${target.cdpPort} con listen: ${stillUp}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_PHONE_APPS=1 -> do danh sach thiet bi + cac ban Bing app tren dien thoai
+  if (process.env.BRF_PHONE_APPS) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const snap = await detectPhoneApps()
+          console.log(`[phone] adb=${snap.adbAvailable} devices=${snap.devices.length} apps=${snap.apps.length} err=${snap.error ?? '-'}`)
+          for (const d of snap.devices) {
+            console.log(`[phone] MAY ${d.serial} ${d.model} android=${d.android} pin=${d.batteryPct}% sac=${d.charging} status=${d.status}`)
+          }
+          for (const a of snap.apps) {
+            console.log(`[phone] APP ${a.online ? 'online ' : 'OFFLINE'} user=${a.user} pkg=${a.pkg} kind=${a.kind} vc=${a.version} — ${a.hint}`)
+          }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
     })
@@ -746,6 +911,32 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
 
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:set', (_e, patch) => setSettings(patch ?? {}))
+
+  // ---------- IPC: dien thoai (adb) ----------
+  ipcMain.handle('phone:list', async (_e, force?: boolean) => (force ? detectPhoneApps() : getPhoneSnapshot()))
+  ipcMain.handle('phone:detect', () => detectPhoneApps())
+  /** Diem danh cho acc DANG dang nhap trong Bing app tren dien thoai */
+  ipcMain.handle('phone:checkin', (_e, { serial, user }: { serial: string; user?: number }) =>
+    checkInCurrentBingAccount(serial, user ?? 0)
+  )
+  /** Chi doc trang thai (diem, streak, con diem danh duoc khong) */
+  ipcMain.handle('phone:read', (_e, { serial, user }: { serial: string; user?: number }) =>
+    readCurrentBingAccount(serial, user ?? 0)
+  )
+  /** Mo Bing app tren dien thoai (de nguoi dung dang nhap acc can diem danh) */
+  ipcMain.handle('phone:openBing', (_e, { serial, user }: { serial: string; user?: number }) =>
+    launchBing(serial, user ?? 0)
+  )
+  /** Doc acc DANG dang nhap trong Bing app (ten + email + diem + chuoi) */
+  ipcMain.handle('phone:account', (_e, { serial, user }: { serial: string; user?: number }) =>
+    readSignedInAccount(serial, user ?? 0)
+  )
+  /** Dang xuat acc hien tai tren Bing app */
+  ipcMain.handle('phone:signout', (_e, { serial }: { serial: string }) => signOutBing(serial))
+  /** Mo form dang nhap Microsoft, dien san email acc ke tiep */
+  ipcMain.handle('phone:signin', (_e, { serial, email }: { serial: string; email?: string | null }) =>
+    startSignIn(serial, email ?? null)
+  )
 
   // ---------- IPC: do trinh duyet tren may ----------
   ipcMain.handle('browsers:detect', (_e, force) => detectBrowsers(!!force))

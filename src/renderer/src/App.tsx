@@ -13,6 +13,8 @@ import { AccountDrawer } from '@renderer/components/AccountDrawer'
 import { BrowsersDialog } from '@renderer/components/BrowsersDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
 import { ProxyPanel } from '@renderer/components/ProxyPanel'
+import { PhonePanel } from '@renderer/components/PhonePanel'
+
 import { ProxyTestFab, type ProxyTestState } from '@renderer/components/ProxyTestFab'
 import { LogDock } from '@renderer/components/LogDock'
 import { StatStrip } from '@renderer/components/StatStrip'
@@ -44,9 +46,13 @@ export default function App(): React.JSX.Element {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
   const [browserCount, setBrowserCount] = useState(0)
-  const [tab, setTab] = useState<'accounts' | 'proxies'>(
-    () => (new URLSearchParams(location.search).get('tab') === 'proxies' ? 'proxies' : 'accounts')
+  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone'>(
+    () => {
+      const t = new URLSearchParams(location.search).get('tab')
+      return t === 'proxies' ? 'proxies' : t === 'phone' ? 'phone' : 'accounts'
+    }
   )
+  const [phoneAppCount, setPhoneAppCount] = useState(0)
   const [proxyCount, setProxyCount] = useState(0)
   const [proxies, setProxies] = useState<ProxyItem[]>([])
   /** proxyId -> suc khoe proxy (de hien IP ra / trang thai ngay tren bang) */
@@ -171,6 +177,13 @@ export default function App(): React.JSX.Element {
       window.clearInterval(timer)
     }
   }, [reload])
+
+  useEffect(() => {
+    void window.api
+      .listPhoneApps(false)
+      .then((s) => setPhoneAppCount(s.devices.filter((d) => d.status === 'online').length))
+      .catch(() => {})
+  }, [])
 
   const runningRows = useMemo(() => rows.filter((r) => r.run.running), [rows])
 
@@ -338,11 +351,12 @@ export default function App(): React.JSX.Element {
               [
                 { id: 'accounts', label: 'Tài khoản' },
                 { id: 'proxies', label: 'Proxy' },
+                { id: 'phone', label: 'Điện thoại' },
                 { id: 'history', label: 'Lịch sử' },
                 { id: 'settings', label: 'Cài đặt' }
               ] as const
             ).map((t) =>
-              t.id === 'accounts' || t.id === 'proxies' ? (
+              t.id === 'accounts' || t.id === 'proxies' || t.id === 'phone' ? (
                 <button
                   key={t.id}
                   type="button"
@@ -357,6 +371,9 @@ export default function App(): React.JSX.Element {
                   {t.label}
                   {t.id === 'proxies' && proxyCount > 0 ? (
                     <span className="ml-1 text-[var(--stone)]">({proxyCount})</span>
+                  ) : null}
+                  {t.id === 'phone' && phoneAppCount > 0 ? (
+                    <span className="ml-1 text-[var(--stone)]">({phoneAppCount})</span>
                   ) : null}
                 </button>
               ) : (
@@ -561,6 +578,8 @@ export default function App(): React.JSX.Element {
               }
             />
           </>
+        ) : tab === 'phone' ? (
+          <PhonePanel rows={rows} />
         ) : (
           <ProxyPanel
             rows={rows}

@@ -1,0 +1,42 @@
+TONG account: 47
+--- theo type ---
+21x  com.google
+11x  com.twitter.android.auth.login
+2x  com.facebook.auth.login
+2x  org.telegram.messenger
+1x  com.microsoft.skydrive
+1x  app.revanced
+1x  com.samsung.android.mobileservice
+1x  com.github.android
+1x  com.microsoft.appmanager
+1x  com.microsoft.office
+1x  com.zhiliaoapp.musically.go
+1x  com.opera.browser.ping
+1x  com.google.android.apps.tachyon
+1x  com.osp.app.signin
+1x  com.facebook.messenger
+--- account co ten dang email ---
+Account {name=gaaralbakuu@gmail.com, type=com.osp.app.signin}
+Account {name=gaaralbakuu005@gmail.com, type=com.google}
+Account {name=datkenhtg@gmail.com, type=com.google}
+Account {name=datkenh001@gmail.com, type=com.google}
+Account {name=datkenh2000@gmail.com, type=com.google}
+Account {name=gaaralbakuu@gmail.com, type=com.google}
+Account {name=phamminhdat.apache@gmail.com, type=com.google}
+Account {name=gaaralbakuu001@gmail.com, type=com.google}
+Account {name=gaaralbakuu002@gmail.com, type=com.google}
+Account {name=gaaralbakuu003@gmail.com, type=com.google}
+Account {name=gaaralbakuu004@gmail.com, type=com.google}
+Account {name=phamminhdat.sub@gmail.com, type=com.google}
+Account {name=sdt.01633149607@gmail.com, type=com.google}
+Account {name=gaaralbakuu2000@gmail.com, type=com.google}
+Account {name=gaaralbakuu100@gmail.com, type=com.google}
+Account {name=it.minhdat001@gmail.com, type=com.google}
+Account {name=phamminhdat.0803@gmail.com, type=com.google}
+Account {name=dev.minhdat001@gmail.com, type=com.google}
+Account {name=gaaralbakuugemini@gmail.com, type=com.google}
+Account {name=datdg25v7x507@dttx.ctu.edu.vn, type=com.google}
+--- type chua chu microsoft ---
+Account {name=Microsoft 365, type=com.microsoft.office}
+Account {name=Gaaralbakuu@gmail.com, type=com.microsoft.skydrive}
+Account {name=gaaralbakuu@gmail.com, type=com.microsoft.appmanager}

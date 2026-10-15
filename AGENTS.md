@@ -277,6 +277,173 @@ Ly do (do that, khong phai loi code):
   => pass dung som truoc buoc do IP. Muon co bang chung: dang nhap acc qua dung proxy do
   (Mo trinh duyet -> dang nhap) roi chay lai, hoac dung proxy tra phi on dinh.
 
+## Tab "Điện thoại" — ĐIỂM DANH rồi ĐỔI ACC trên điện thoại (chốt 2026-10-15)
+
+Kịch bản người dùng chốt sau khi hướng clone/bind **thất bại**: **1 bản Bing app** trên điện thoại,
+mở app → **điểm danh** → **đổi sang acc khác trên điện thoại** → điểm danh tiếp. **KHÔNG bind app vào acc nào**
+(đã gỡ toàn bộ UI gán app↔acc: mục trong AccountDialog, chip 📱 trên bảng tài khoản, bảng app trong tab).
+
+- `src/main/phone.ts`: `checkInCurrentBingAccount(serial, user)` = mở Bing app → tap thẻ **Rewards** → dò
+  `@webview_devtools_remote_<pid>` → `adb forward` → CDP vào mini-app → đọc điểm → bấm
+  `div.daily-set .streak-card-wrapper.active` → đọc lại điểm. Trả `{ok, pointsBefore, pointsAfter, gained,
+  alreadyDone, todayPoints, streak}`. `readCurrentBingAccount()` chỉ đọc, không bấm. `launchBing()` để mở app.
+- IPC: `phone:checkin`, `phone:read`, `phone:openBing` (+ preload `checkInPhone`, `readPhone`, `openPhoneBing`).
+- UI tab **Điện thoại (N)** (N = số thiết bị online): hàng 1 = **Dò lại thiết bị** + **Mở Bing app trên điện thoại**
+  + card thiết bị (model, serial, Android, pin, online/mất kết nối) + tổng “Điểm danh được: X acc · tổng +Y điểm”.
+  Hàng 2 = hướng dẫn 2 bước. Bảng (thead sticky): **Bước · Tài khoản · Trạng thái điểm danh · Điểm trên app ·
+  Streak · Hành động**; mỗi dòng có **Điểm danh & sang acc kế** (chạy xong tự nhảy dòng kế + nhắc đổi acc trên
+  điện thoại) và **Chỉ điểm danh** (không nhảy dòng). Dòng đang thao tác được tô nền + badge “đang thao tác”.
+- Chạy lại acc đã điểm danh là **an toàn** (idempotent): app báo `alreadyDone` vì ô điểm danh không còn class
+  `active`, không bấm trùng.
+- **Bẫy sticky**: `ui/table.tsx` đã để `TableHeader` là `position: sticky` và `Table` bọc trong `ScrollArea`.
+  Bọc thêm `<div className="overflow-auto">` quanh `<Table>` là **mất sticky** (2 vùng cuộn lồng nhau) — phải để
+  wrapper `overflow-hidden` + `flex min-h-0 flex-1`.
+- **Bẫy test tự động**: menu Radix mở bằng **pointerdown**, `element.click()` không mở — phải bắn
+  `PointerEvent('pointerdown'/'pointerup')` hoặc `sendInputEvent` chuột thật.
+- Kiểm chứng thật (2026-10-15): `BRF_PHONE_CHECKIN=1` → `{"ok":true,"pointsBefore":815,"pointsAfter":815,
+  "gained":0,"alreadyDone":true,"todayPoints":"45/45","streak":"3 day"}` (acc Tháp Vu đã điểm danh hôm đó).
+  `BRF_TAB=phone` để mở thẳng tab; `BRF_PHONE_APPS=1` in danh sách thiết bị/app adb dò được.
+- Còn giữ `src/main/phone-apps.ts` (`detectPhoneApps`) để lấy **thông tin thiết bị**; danh sách app `dkapp.*`
+  vẫn dò được nhưng không còn dùng để bind.
+- Vì sao không tự đổi acc: đổi tài khoản Microsoft trong Bing app cần **mật khẩu + 2FA** — người dùng tự đổi
+  trên điện thoại, app chỉ điểm danh cho acc đang đăng nhập.
+## Clone app bằng app cloner bên thứ 3 (khảo sát 2026-10-15)
+
+Máy đang có **`com.py.cloneapp.huawei`** ("Clone App" v3.4.5, targetSdk 28) — người dùng đã dùng để clone Telegram.
+
+- Cách nó hoạt động: **tạo APK thật rồi cài như app bình thường**, tên gói bị obfuscate dạng `dkapp.xxx.yyy`.
+  Trên máy đã có **13 gói `dkapp.*`** = 13 bản Telegram clone ⇒ cơ chế "N clone = N APK trên 1 máy" **chạy được**.
+- Có chế độ **Batch clone** (tạo nhiều bản một lúc) trong màn hình cấu hình clone.
+- App gốc **không bị đụng**: Bing gốc vẫn `versionName=34.2.441001006`, `lastUpdateTime=2026-10-13` sau khi thử.
+
+**Nhưng clone Bing thì TẮC**: bản `dkapp.dpf.arq` treo ở `InstallInstalling` > 11 phút, không cài xong
+(Play Protect đã verify `ALLOW` lúc 11:03:56, dung lượng trống 33 GB ⇒ không phải do thiếu chỗ).
+Nghi ngờ chính: **Bing là split APK** (`base.apk` + `split_config.arm64_v8a.apk` + `split_config.xxhdpi.apk`),
+còn Telegram là APK đơn ⇒ cloner patch/merge split không nổi.
+
+⚠️ **Chưa kiểm chứng được**: APK đã patch + ký lại (đổi package name ⇒ đổi signature hash) thì **login Microsoft
+có chạy không** — MSAL redirect URI gắn với package + chữ ký. Phải cài xong mới thử được.
+
+Đường **đã** kiểm chứng cho nhiều acc/máy: **work profile** (xem mục trên) — 2 bản Bing/máy, chữ ký nguyên,
+login OK, mỗi bản một socket WebView CDP riêng.
+
+### Đánh giá cloner cho use case farm Rewards (không nên)
+
+Đo trên máy: cài từ **sideload** (`installerPackageName=com.google.android.packageinstaller`), cài **2024-05-15**,
+**targetSdk 28** (Android 9, chạy compatibility trên Android 12), **21 quyền** gồm `REQUEST_INSTALL_PACKAGES`,
+`SYSTEM_ALERT_WINDOW`, `ACCESS_FINE_LOCATION` + `ACCESS_BACKGROUND_LOCATION`, `READ_PHONE_STATE`,
+`READ/WRITE_EXTERNAL_STORAGE`. Nó **patch rồi ký lại APK** của app khác.
+
+⇒ Với app đơn giản (Telegram) thì tiện và đã chạy 13 bản. Với **Bing + tài khoản Microsoft** thì:
+tắc ở bước cài (split APK), rủi ro login do đổi chữ ký, chưa chắc lộ socket CDP để tự động hoá,
+mỗi lần Bing update phải clone lại, và phải đặt session Microsoft vào APK do tool bên thứ ba ký lại.
+**Khuyến nghị: dùng work profile (2 bản/máy) hoặc thêm máy; nếu vẫn thử cloner thì chỉ thử bằng acc rác.**
+
+## Clone app Bing trên điện thoại — ĐÃ TEST CHẠY ĐƯỢC (2026-10-15)
+
+Mục tiêu: nhiều tài khoản Microsoft trên **1 điện thoại**, mỗi acc 1 bản Bing app riêng.
+Thiết bị thử: Samsung Galaxy A31 (SM-A315G), Android 12, **không root**.
+
+### Cách chạy được (đã kiểm chứng từng bước)
+
+```bash
+# 1. Tạo work profile (managed profile) — ĐƯỢC, dù user thường bị chặn
+adb shell pm create-user --profileOf 0 --managed clone1     # -> Success: created user id 10
+adb shell am start-user 10                                   # -> Success: user started
+
+# 2. Cài Bing app sang user 10 KHÔNG cần copy APK (giữ nguyên chữ ký -> login Microsoft vẫn chạy)
+adb shell pm install-existing --user 10 com.microsoft.bing    # -> Package ... installed for user: 10
+
+# 3. Mở app ở user 10 — PHẢI dùng LauncherAlias, KHÔNG dùng MainSapphireActivity
+adb shell am start --user 10 -a android.intent.action.MAIN \
+  -c android.intent.category.LAUNCHER \
+  -n com.microsoft.bing/com.microsoft.sapphire.app.main.LauncherAlias
+# -> mResumedActivity: u10 com.microsoft.bing/...BingAppGlobalFreActivity  (first-run, bản sạch)
+
+# 4. Mỗi bản có WebView devtools RIÊNG -> điều khiển độc lập bằng CDP
+adb shell cat /proc/net/unix | grep webview_devtools_remote
+#   @webview_devtools_remote_7687   <- user 0
+#   @webview_devtools_remote_31383  <- user 10
+adb -s <serial> forward tcp:9412 localabstract:webview_devtools_remote_7687
+adb -s <serial> forward tcp:9414 localabstract:webview_devtools_remote_31383
+```
+
+### Kết quả đo được
+
+| Hạng mục | Kết quả |
+|---|---|
+| Số bản Bing / máy | **2** (user 0 + user 10). Tạo managed profile thứ 2 ⇒ `Error: couldn't create User.` (Samsung giới hạn user) |
+| `pm install-existing --user 10` | ✅ `installed for user: 10` — không cần APK, chữ ký nguyên vẹn |
+| Mở app ở user 10 | ✅ hiện **first-run experience** ("Giới thiệu Tìm kiếm Copilot trong Bing") = bản sạch, chưa login |
+| WebView CDP của bản clone | ✅ forward 9414 → target `MSN`; tách hoàn toàn với bản user 0 |
+| Secure Folder (user 150) | ❌ `SecurityException: Shell does not have permission to access user 150` (Knox chặn adb) |
+| `am switch-user 10` | ❌ `Failed to switch to user 10` — **không cần**, activity của profile vẫn hiện trên màn hình |
+| `am create-user` (user thường) | ❌ `Maximum user limit is reached` |
+
+### Bẫy
+
+- `am start -n ...MainSapphireActivity` ⇒ `SecurityException: ... not exported`. **Luôn dùng `LauncherAlias` + MAIN/LAUNCHER.**
+- Muốn N acc ⇒ cần `ceil(N/2)` điện thoại (1 máy = 2 acc), hoặc dùng app cloner bên thứ 3 cho nhiều hơn.
+- Bản clone **phải login Microsoft thủ công 1 lần** (mở Bing app → Đăng nhập) rồi mới tự động được.
+- Ảnh chụp màn hình: dùng `adb shell screencap -p /sdcard/s.png` + `adb pull` (KHÔNG dùng `exec-out ... > file.png` trong PowerShell).
+
+## Điểm danh Bing app qua ADB + WebView CDP (đo thật 2026-10-15)
+
+Thiết bị thử: **Samsung Galaxy A31 (SM-A315G), Android 12**, serial `RF8R2104JHN`, màn 1080x2400.
+adb: `C:\platform-tools\adb.exe` (v37). Bing app `com.microsoft.bing` v34.2.441001006.
+
+### Kịch bản (đã chạy thật, +5 điểm)
+
+```
+1. adb -s <serial> shell am start -n com.microsoft.bing/com.microsoft.sapphire.app.main.MainSapphireActivity
+2. chờ ~6 s cho UI idle
+3. uiautomator dump -> tìm node text="Rewards" (thẻ Rewards ở trang chủ) -> input tap toạ độ giữa
+   (deep link `bing://rewards` KHÔNG mở được trang Rewards — đã thử, app chỉ về trang chủ)
+4. poll `cat /proc/net/unix` tìm `@webview_devtools_remote_<pid>`
+   => PID ĐỔI mỗi lần app restart nên phải dò động, không hardcode
+5. adb forward tcp:<port> localabstract:webview_devtools_remote_<pid>
+6. CDP GET http://127.0.0.1:<port>/json/list -> target title "Rewards",
+   url `file:///data/user/0/com.microsoft.bing/files/miniapps/<hash>/<ver>/index.html#/homePage`
+7. đọc trạng thái từ `document.body.innerText` (regex `(\d[\d.,]*)\s*điểm`), thấy "Điểm hôm nay 45/45",
+   "Chuỗi liên tiếp 3 day", "0 / 12" (phiếu)
+8. ĐIỂM DANH: `document.querySelector('.streak-card-wrapper.active')` -> click giữa ô
+   => 810 -> 815 điểm, class đổi `active` -> `checked`
+9. Idempotent: đã điểm danh thì KHÔNG còn `.active` -> lần chạy sau tự bỏ qua (đã kiểm chứng)
+```
+
+### DOM của mini-app Rewards (dùng để code, đừng đoán)
+
+- Ô điểm danh: `div.daily-set > div.check-in-card > div.streak-card-wrapper`
+  - `.streak-card-wrapper.active` = **hôm nay, bấm được** (điểm danh)
+  - `.streak-card-wrapper.checked` = đã nhận
+  - `.streak-card-wrapper.inActive` = chưa tới ngày
+- Chu kỳ 7 ngày: 5, 5, 10, 10, 15, 15, 50 (ngày 7 kèm phiếu)
+- Trang có NHIỀU carousel dùng chung class đó (daily set: 3/3/3/100 và 30/30/30/100)
+  ⇒ phải chọn đúng carousel có header "Đăng ký vào", không thì bấm nhầm ô.
+- Trang Rewards trong app là **WebView (mini-app HTML)** — `uiautomator dump` KHÔNG thấy nội dung
+  (chỉ thấy thanh native), nên bắt buộc đi đường CDP.
+
+### Bẫy đã gặp khi làm ADB
+
+| Bẫy | Thực tế đo được |
+|---|---|
+| Chrome không phải trình duyệt mặc định (Opera mới là) | `am start -a VIEW -d <url>` mở **Opera**; phải `am start -n com.android.chrome/com.google.android.apps.chrome.Main -d <url>`; socket devtools của Opera tên khác: `@com.opera.browser.devtools` |
+| Port 9222 không forward được | `cannot bind ... (10013)`; đổi sang 9411/9413. Kiểm tra dải bị giữ: `netsh interface ipv4 show excludedportrange protocol=tcp` |
+| Chrome chưa chạy ⇒ không có socket | Phải mở Chrome trước rồi mới kiểm tra `/proc/net/unix` có `@chrome_devtools_remote` |
+| `pm create-user` để clone app | **BỊ CHẶN trên Samsung**: `Error: couldn't create User.` ⇒ không clone được kiểu nhiều user Android |
+| Secure Folder (user 150) | Có sẵn nhưng **rỗng**; Knox chặn adb đọc app bên trong ⇒ khó tự động |
+| Muốn nhiều acc/1 máy | Phải dùng **app cloner** (Dual Space/Parallel Space) — giữ nguyên chữ ký nên Microsoft login vẫn chạy |
+| Ảnh chụp màn hình bằng `adb exec-out screencap -p > file.png` trong PowerShell | Hỏng file (PS chuyển binary thành text) → dùng `adb shell screencap -p /sdcard/s.png` + `adb pull` |
+| `uiautomator dump` thỉnh thoảng rỗng | UI đang animate → phải retry 3–5 lần cho tới khi XML > 600 ký tự |
+
+### Chrome trên điện thoại cũng điều khiển được (bonus, đã kiểm chứng)
+
+`adb forward tcp:9411 localabstract:chrome_devtools_remote` → `connectOverCDP` → `Chrome/153.0.8010.53`,
+UA `... Android 10; K ... Chrome/153.0.0.0 Mobile Safari/537.36`, 6 tab sẵn có (có cả `rewards.bing.com/redeem/orderhistory`).
+
+**Lưu ý IP**: điện thoại đang nối WiFi (`172.16.2.147`) ⇒ **IP công cộng giống PC**. Muốn khác IP thật
+phải cho điện thoại dùng 4G (tắt WiFi). Pin lúc thử: 26% — nhớ cắm sạc khi chạy pass dài.
+
 ## Cập nhật point SONG SONG (2026-10-15)
 
 `refreshMany()` trong `src/main/runner.ts` chạy **pool song song** thay vì for-await tuần tự:

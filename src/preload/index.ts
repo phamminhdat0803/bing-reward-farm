@@ -8,6 +8,7 @@ import type {
   ProxyItem,
   ProxyTestProgress,
   ProxyTestResult,
+  PhoneSnapshot,
   RefreshProgress,
   RowState,
   Snapshot
@@ -72,6 +73,59 @@ const api = {
   > => ipcRenderer.invoke('proxies:health'),
   /** Dò các trình duyệt đang cài trên máy */
   detectBrowsers: (force = false): Promise<DetectedBrowser[]> => ipcRenderer.invoke('browsers:detect', force),
+
+  /** Danh sách thiết bị Android + các bản Bing app (app gốc / work profile / clone) do adb dò được */
+  listPhoneApps: (force = false): Promise<PhoneSnapshot> => ipcRenderer.invoke('phone:list', force),
+  detectPhoneApps: (): Promise<PhoneSnapshot> => ipcRenderer.invoke('phone:detect'),
+  /** Điểm danh acc ĐANG đăng nhập trong Bing app trên điện thoại */
+  checkInPhone: (
+    serial: string,
+    user = 0
+  ): Promise<{
+    ok: boolean
+    account: string | null
+    pointsBefore: number | null
+    pointsAfter: number | null
+    gained: number
+    alreadyDone: boolean
+    todayPoints: string | null
+    streak: string | null
+    error?: string
+  }> => ipcRenderer.invoke('phone:checkin', { serial, user }),
+  /** Mở Bing app trên điện thoại (để đăng nhập acc cần điểm danh) */
+  openPhoneBing: (serial: string, user = 0): Promise<boolean> => ipcRenderer.invoke('phone:openBing', { serial, user }),
+  /** Đọc acc ĐANG đăng nhập trong Bing app: tên + email + điểm + điểm hôm nay + chuỗi */
+  readPhoneAccount: (
+    serial: string,
+    user = 0
+  ): Promise<{
+    signedIn: boolean
+    email: string | null
+    name: string | null
+    points: number | null
+    todayPoints: string | null
+    streak: string | null
+    raw: string
+    error?: string
+  }> => ipcRenderer.invoke('phone:account', { serial, user }),
+  /** Đăng xuất acc hiện tại trên Bing app (1 tap, không có dialog) */
+  signOutPhone: (serial: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('phone:signout', { serial }),
+  /** Mở form đăng nhập Microsoft và điền sẵn email acc kế tiếp */
+  signInPhone: (serial: string, email?: string | null): Promise<{ ok: boolean; typedEmail?: boolean; error?: string }> =>
+    ipcRenderer.invoke('phone:signin', { serial, email: email ?? null }),
+  /** Chỉ đọc trạng thái Rewards của acc đang đăng nhập */
+  readPhone: (
+    serial: string,
+    user = 0
+  ): Promise<{
+    ok: boolean
+    points: number | null
+    todayPoints: string | null
+    streak: string | null
+    canCheckIn: boolean
+    error?: string
+  }> => ipcRenderer.invoke('phone:read', { serial, user }),
 
   snapshot: (id: string): Promise<Snapshot> => ipcRenderer.invoke('rewards:snapshot', id),
   openLoginWindow: (id: string): Promise<{ ok: boolean; error?: string }> =>
