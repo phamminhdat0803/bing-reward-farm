@@ -8,7 +8,7 @@ import { openLoginWindow, queueView, refreshMany, resetProfile, runState, runSta
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
+import { addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
@@ -236,6 +236,88 @@ if (process.env.BRF_TEST_ALL) {
         console.error('[bulk] loi', e)
       }
     })()
+  }
+
+  // Tien ich dev: BRF_TEST_PROXYFAB=1 -> chay kiem tra toan bo proxy, chup anh luc dang chay
+  // (tab Proxy), roi CHUYEN SANG TAB TAI KHOAN va chup lai de chung minh cuc tron tien do khong mat.
+  if (process.env.BRF_TEST_PROXYFAB) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const n = listProxies().length
+          console.log(`[proxyfab] bat dau kiem tra ${n} proxy`)
+          void testAll(15, undefined, (p) => broadcast('proxies:testProgress', p))
+
+          await new Promise((r) => setTimeout(r, 9000))
+          const shot = async (name: string): Promise<void> => {
+            const img = await wc.capturePage()
+            const dir = join(process.cwd(), 'docs')
+            mkdirSync(dir, { recursive: true })
+            const file = join(dir, `shot-${name}-${Date.now()}.png`)
+            writeFileSync(file, img.toPNG())
+            console.log(`[proxyfab] anh ${name}: ${file}`)
+          }
+          await shot('proxy-tab')
+
+          // Chuyen sang tab Tai khoan giua luc dang kiem tra
+          const clicked = await wc.executeJavaScript(`(() => {
+            const b = [...document.querySelectorAll('button, span')].find((el) => (el.textContent || '').trim() === 'Tài khoản')
+            if (!b) return false
+            b.click()
+            return true
+          })()`)
+          console.log(`[proxyfab] da bam tab Tai khoan: ${clicked}`)
+          await new Promise((r) => setTimeout(r, 1200))
+          await shot('accounts-tab')
+
+          const fab = await wc.executeJavaScript(`(() => {
+            const el = document.querySelector('[data-slot="proxy-test-fab"]')
+            if (!el) return { found: false }
+            const r = el.getBoundingClientRect()
+            const app = document.querySelector('[data-slot="run-fab"]')
+            const ar = app ? app.getBoundingClientRect() : null
+            return {
+              found: true,
+              x: Math.round(r.x), y: Math.round(r.y),
+              runFab: ar ? { x: Math.round(ar.x), y: Math.round(ar.y) } : null,
+              title: el.getAttribute('title')
+            }
+          })()`)
+          console.log(`[proxyfab] FAB sau khi doi tab: ${JSON.stringify(fab)}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_CLOSETEST=<id|1> -> thu dong trinh duyet (kiem thu nut "Dong" khi app vua restart,
+  // tuc la map `running` rong va khong biet pid)
+  if (process.env.BRF_CLOSETEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const want = String(process.env.BRF_CLOSETEST)
+          const list = loadStore().profiles
+          const target = want === '1' ? list[0] : (list.find((p) => p.id === want) ?? list[0])
+          if (!target) return
+          const st = await browserState(target)
+          console.log(`[closetest] truoc khi dong: ${target.id} running=${st.running} pid=${st.pid} port=${st.port}`)
+          const r = await closeBrowser(target.id)
+          console.log(`[closetest] closeBrowser -> ${JSON.stringify(r)}`)
+          await new Promise((res) => setTimeout(res, 2500))
+          const after = await browserState(target)
+          console.log(`[closetest] sau khi dong: running=${after.running} port=${after.port}`)
+          const left = (
+            await import('node:child_process')
+          ).execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true })
+          const stillUp = String(left)
+            .split(/\r?\n/)
+            .some((l) => new RegExp(`:${target.cdpPort}\\s`).test(l) && /LISTENING/i.test(l))
+          console.log(`[closetest] cong ${target.cdpPort} con listen: ${stillUp}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
   }
 
   // Tien ich dev: BRF_SEED_PROXY=1 -> them 2 proxy mau vao kho (de kiem thu tab Proxy)
@@ -647,11 +729,14 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     const idList: string[] = Array.isArray(ids) && ids.length ? ids : loadStore().profiles.map((p) => p.id)
     const profiles = idList.map((id) => getProfile(id)).filter((p): p is NonNullable<typeof p> => !!p)
     try {
+      const s = getSettings()
       const res = await refreshMany(profiles, {
         onLine: (line: LogLine) => broadcast('log:line', line),
         onSnapshot: (snap) => broadcast('rewards:snapshot', snap),
-        onProgress: (done, total, profileId) => broadcast('refresh:progress', { done, total, profileId }),
-        gapMs: getSettings().refreshGapMs
+        onProgress: (done, total, profileId) =>
+          broadcast('refresh:progress', { done, total, profileId, parallel: s.refreshParallel }),
+        gapMs: s.refreshGapMs,
+        parallel: s.refreshParallel
       })
       return { ok: true, count: res.length }
     } finally {
@@ -709,7 +794,13 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     }
   })
   ipcMain.handle('proxies:test', (_e, id) => testAndSave(id))
-  ipcMain.handle('proxies:testAll', (_e, filterIds?: string[]) => testAll(6, filterIds))
+  ipcMain.handle('proxies:testAll', (_e, filterIds?: string[]) =>
+    testAll(15, filterIds, (p) => broadcast('proxies:testProgress', p))
+  )
+  ipcMain.handle('proxies:cancelTestAll', () => {
+    cancelTestAll()
+    return { ok: true }
+  })
   ipcMain.handle('proxies:health', () => getHealthById())
 
   createWindow()

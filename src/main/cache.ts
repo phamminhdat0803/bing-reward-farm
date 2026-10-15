@@ -37,26 +37,44 @@ function save(st: Store): void {
   }
 }
 
+/**
+ * Giu 1 ban trong bo nho + ghi file theo HANG DOI.
+ * Ly do: khi cap nhat NHIEU tai khoan SONG SONG, nhieu `put()` chay cung luc;
+ * doc-sua-ghi tung lan se ghi de lan nhau => mat so lieu cua acc khac.
+ */
+let mem: Store | null = null
+let writeChain: Promise<void> = Promise.resolve()
+
+function store(): Store {
+  if (!mem) mem = load()
+  return mem
+}
+
+function scheduleSave(): void {
+  const snap = JSON.parse(JSON.stringify(store())) as Store
+  writeChain = writeChain.then(() => save(snap)).catch(() => {})
+}
+
 export function getAll(): Record<string, CachedSnapshot> {
-  return load().items
+  return store().items
 }
 
 export function get(profileId: string): CachedSnapshot | null {
-  return load().items[profileId] ?? null
+  return store().items[profileId] ?? null
 }
 
 export function put(snapshot: Snapshot): CachedSnapshot {
-  const st = load()
+  const st = store()
   const item: CachedSnapshot = { ...snapshot, cachedAt: new Date().toISOString(), date: todayKey() }
   st.items[snapshot.profileId] = item
-  save(st)
+  scheduleSave()
   return item
 }
 
 export function remove(profileId: string): void {
-  const st = load()
+  const st = store()
   delete st.items[profileId]
-  save(st)
+  scheduleSave()
 }
 
 /**

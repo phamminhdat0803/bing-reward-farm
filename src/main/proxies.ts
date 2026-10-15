@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
-import type { ProxyItem, ProxyTestResult } from '../shared/types'
+import type { ProxyItem, ProxyTestProgress, ProxyTestResult } from '../shared/types'
 import { request } from 'playwright-core'
 import { parseProxy } from './core/browser'
 import { testProxy } from './proxy-test'
@@ -225,10 +225,10 @@ export async function checkProxyHealth(url: string, opts: { force?: boolean } = 
   try {
     const req = await request.newContext({
       proxy: { server: parsed.server, username: parsed.username, password: parsed.password },
-      timeout: 15000
+      timeout: 8000
     })
     try {
-      const res = await req.get('https://www.bing.com/?FORM=Z9FD1', { timeout: 15000 })
+      const res = await req.get('https://www.bing.com/?FORM=Z9FD1', { timeout: 8000 })
       bingStatus = res.status()
       bingOk = bingStatus < 400
     } finally {
@@ -239,13 +239,15 @@ export async function checkProxyHealth(url: string, opts: { force?: boolean } = 
   }
   const latency = Date.now() - t0
 
-  // BUOC 2: lay IP ra chi de HIEN THI. ip-api co the rate-limit (429) -> KHONG duoc coi la proxy chet.
+  // BUOC 2: lay IP ra chi de HIEN THI (CHI KHI qua duoc Bing de tiet kiem thoi gian, tranh doi 12s vo ich)
   let ip: string | undefined
   let country: string | undefined
-  const info = await testProxy(url).catch(() => null)
-  if (info?.ok) {
-    ip = info.ip
-    country = info.country
+  if (bingOk) {
+    const info = await testProxy(url).catch(() => null)
+    if (info?.ok) {
+      ip = info.ip
+      country = info.country
+    }
   }
 
   let health: ProxyHealth
@@ -364,27 +366,85 @@ async function testProxyWithHealth(url: string): Promise<ProxyTestResult> {
   return { ok: false, ip: h.ip, country: h.country, latency: h.latency, error: why }
 }
 
-/** Test tat ca hoac danh sach proxy duoc chon (song song co gioi han), CHI ghi file 1 lan cho nhanh va tranh tranh chap. */
-export async function testAll(concurrency = 6, filterIds?: string[]): Promise<Record<string, ProxyTestResult>> {
+let cancelTesting = false
+
+export function cancelTestAll(): void {
+  cancelTesting = true
+}
+
+/** Test tat ca hoac danh sach proxy duoc chon theo lo song song (batch concurrency), stream tien do va ghi file dinh ky. */
+export async function testAll(
+  concurrency = 15,
+  filterIds?: string[],
+  onProgress?: (p: ProxyTestProgress) => void
+): Promise<Record<string, ProxyTestResult>> {
+  cancelTesting = false
   const all = listProxies()
   const items = filterIds && filterIds.length > 0 ? all.filter((p) => filterIds.includes(p.id)) : all
   const out: Record<string, ProxyTestResult> = {}
   let i = 0
+  let done = 0
+  let okCount = 0
+  let errorCount = 0
+  let lastSave = Date.now()
+
   const worker = async (): Promise<void> => {
-    while (i < items.length) {
+    while (i < items.length && !cancelTesting) {
       const idx = i
       i += 1
       const item = items[idx]
+      if (!item) break
       // eslint-disable-next-line no-await-in-loop
       const res = await testProxyWithHealth(item.url)
+      const at = new Date().toISOString()
+      const testWithAt = { ...res, at }
       out[item.id] = res
-      const st = load()
-      const target = st.items.find((x) => x.id === item.id)
-      if (target) target.lastTest = { ...res, at: new Date().toISOString() }
-      save(st)
+
+      done += 1
+      if (res.ok) okCount += 1
+      else errorCount += 1
+
+      onProgress?.({
+        done,
+        total: items.length,
+        ok: okCount,
+        error: errorCount,
+        id: item.id,
+        result: testWithAt
+      })
+
+      // Ghi file theo lo (cu 5 item hoac sau 3s)
+      const now = Date.now()
+      if (done % 5 === 0 || now - lastSave > 3000 || done === items.length) {
+        try {
+          const st = load()
+          for (const [k, v] of Object.entries(out)) {
+            const target = st.items.find((x) => x.id === k)
+            if (target) target.lastTest = { ...v, at }
+          }
+          save(st)
+          lastSave = now
+        } catch {
+          /* bo qua loi ghi tam */
+        }
+      }
     }
   }
+
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()))
+
+  // Ghi chot lan cuoi
+  try {
+    const st = load()
+    for (const [k, v] of Object.entries(out)) {
+      const target = st.items.find((x) => x.id === k)
+      if (target) target.lastTest = { ...v, at: new Date().toISOString() }
+    }
+    save(st)
+  } catch {
+    /* bo qua */
+  }
+
   healthNotifier?.()
   return out
 }

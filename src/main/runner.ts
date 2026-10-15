@@ -821,7 +821,12 @@ export async function refresh(
   return cached
 }
 
-/** Cap nhat lan luot nhieu profile (moi profile mot lan mo trinh duyet). */
+/**
+ * Cap nhat so lieu cho NHIEU profile — chay SONG SONG co gioi han.
+ * Moi profile la 1 user-data-dir + 1 cua so rieng nen khong dung nhau; `withProfileLock`
+ * chi khoa theo tung profile. `parallel` = so acc mo cung luc (1 = tuan tu nhu truoc).
+ * `gapMs` chi de lech nhip khoi dong giua cac worker (tranh mo 5 trinh duyet cung 1 giay).
+ */
 export async function refreshMany(
   profiles: Profile[],
   hooks: {
@@ -829,24 +834,53 @@ export async function refreshMany(
     onSnapshot?: (s: Snapshot) => void
     onProgress?: (done: number, total: number, profileId: string) => void
     gapMs?: number
+    parallel?: number
   } = {}
 ): Promise<CachedSnapshot[]> {
-  const out: CachedSnapshot[] = []
-  for (const [i, p] of profiles.entries()) {
-    hooks.onProgress?.(i, profiles.length, p.id)
-    try {
-      out.push(await refresh(p, hooks))
-    } catch (e) {
-      hooks.onLine?.({
-        at: new Date().toISOString(),
-        level: 'error',
-        msg: `cap nhat ${p.name} loi: ${String((e as Error).message).slice(0, 200)}`,
-        profileId: p.id
-      })
-    }
-    hooks.onProgress?.(i + 1, profiles.length, p.id)
-    if (i < profiles.length - 1) await sleep(hooks.gapMs ?? 2000)
+  const total = profiles.length
+  if (!total) return []
+
+  const requested = hooks.parallel ?? getSettings().refreshParallel ?? 3
+  const limit = Math.max(1, Math.min(requested, total))
+  const stagger = hooks.gapMs ?? getSettings().refreshGapMs ?? 800
+
+  const results: (CachedSnapshot | null)[] = new Array(total).fill(null)
+  let cursor = 0
+  let done = 0
+
+  hooks.onProgress?.(0, total, profiles[0].id)
+  if (limit > 1) {
+    hooks.onLine?.({
+      at: new Date().toISOString(),
+      level: 'info',
+      msg: `cap nhat song song ${limit} tai khoan cung luc (tong ${total})`
+    })
   }
-  return out
+
+  const worker = async (slot: number): Promise<void> => {
+    // Lech nhip khoi dong theo slot de khong mo qua nhieu trinh duyet cung luc
+    if (slot > 0 && stagger > 0) await sleep(stagger * slot)
+    for (;;) {
+      const i = cursor
+      cursor += 1
+      if (i >= total) return
+      const p = profiles[i]
+      try {
+        results[i] = await refresh(p, hooks)
+      } catch (e) {
+        hooks.onLine?.({
+          at: new Date().toISOString(),
+          level: 'error',
+          msg: `cap nhat ${p.name} loi: ${String((e as Error).message).slice(0, 200)}`,
+          profileId: p.id
+        })
+      }
+      done += 1
+      hooks.onProgress?.(done, total, p.id)
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, (_, k) => worker(k)))
+  return results.filter((r): r is CachedSnapshot => !!r)
 }
 

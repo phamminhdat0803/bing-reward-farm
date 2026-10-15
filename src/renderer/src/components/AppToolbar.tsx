@@ -34,7 +34,7 @@ export type ToolbarProps = {
   anyBrowserOpen: boolean
   anyRunning: boolean
   busy: string | null
-  refreshing: { done: number; total: number } | null
+  refreshing: { done: number; total: number; parallel?: number } | null
   query: string
   onQuery: (v: string) => void
   onAdd: () => void
@@ -78,7 +78,9 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
         title="Mở trình duyệt để đọc điểm + trần ngày cho các tài khoản đã chọn"
       >
         <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
-        {isRefreshing ? `Đang cập nhật ${p.refreshing?.done ?? 0}/${p.refreshing?.total ?? 0}` : 'Cập nhật trạng thái'}
+        {isRefreshing
+          ? `Đang cập nhật ${p.refreshing?.done ?? 0}/${p.refreshing?.total ?? 0}${(p.refreshing?.parallel ?? 1) > 1 ? ` · ${p.refreshing?.parallel} song song` : ''}`
+          : 'Cập nhật trạng thái'}
       </Button>
 
       <Divider />

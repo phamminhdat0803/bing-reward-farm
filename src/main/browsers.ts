@@ -1,5 +1,5 @@
 // Quan ly tien trinh trinh duyet cho tung profile (mo bang CDP de vua xem vua automation).
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import net from 'node:net'
 import { chromium } from 'playwright-core'
 import { EARN_URL } from './core/rewards'
@@ -173,16 +173,61 @@ async function openBrowserUnlocked(profile: Profile): Promise<BrowserState & { e
   return { ...state, running: true, exe: res.exe }
 }
 
-export async function closeBrowser(profileId: string): Promise<{ ok: boolean }> {
-  const mem = running.get(profileId)
-  running.delete(profileId)
-  if (!mem?.pid) return { ok: false }
-  await new Promise<void>((resolve) => {
-    const child = spawn('taskkill', ['/PID', String(mem.pid), '/T', '/F'], { stdio: 'ignore' })
+/** Tim PID cua tien trinh dang listen tren cong (browser mo bang --remote-debugging-port). */
+function pidListeningOn(port: number): number | null {
+  try {
+    const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true })
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.match(/^\s*TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/i)
+      if (m && Number(m[1]) === port) return Number(m[2])
+    }
+  } catch {
+    /* bo qua */
+  }
+  return null
+}
+
+function killTree(pid: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const child = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
     child.on('exit', () => resolve())
     child.on('error', () => resolve())
   })
-  return { ok: true }
+}
+
+/**
+ * Dong trinh duyet cua 1 profile.
+ * Truong hop THUONG GAP: browser do nguoi dung tu mo, hoac app vua khoi dong lai
+ * (map `running` rong) => khong biet pid. Truoc day ham nay tra {ok:false} va KHONG lam gi
+ * (nut "Dong trinh duyet" nhu bi liet). Gio lan luot: pid da luu -> PID theo cong CDP -> nho CDP tu tat.
+ */
+export async function closeBrowser(profileId: string): Promise<{ ok: boolean; error?: string }> {
+  const profile = loadStore().profiles.find((p) => p.id === profileId) ?? null
+  const mem = running.get(profileId)
+  running.delete(profileId)
+  closeStrikes.delete(profileId)
+
+  const port = mem?.port ?? profile?.cdpPort ?? null
+  let pid = mem?.pid ?? null
+  if (!pid && port) pid = pidListeningOn(port)
+
+  if (pid) {
+    await killTree(pid)
+    return { ok: true }
+  }
+
+  // Khong tim thay tien trinh: nho CDP bao browser tu dong (browser mo tay khong co pid trong map)
+  if (port && (await cdpAlive(port))) {
+    try {
+      const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 5000 })
+      await browser.close()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: `không đóng được qua CDP: ${String((e as Error).message).slice(0, 120)}` }
+    }
+  }
+
+  return { ok: false, error: 'không thấy trình duyệt nào đang mở cho tài khoản này' }
 }
 
 /**

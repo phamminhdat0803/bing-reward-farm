@@ -24,6 +24,10 @@ export type Profile = {
    * KHONG thay the proxyId/proxyFallbacks cua nguoi dung.
    */
   lastGoodProxy?: string | null
+  /** Serial thiet bi Android (adb devices) de chay pass mobile tren dien thoai that */
+  deviceSerial?: string | null
+  /** Cong CDP forward sang dien thoai (mac dinh 9411) */
+  devicePort?: number | null
   note?: string
   createdAt: string
   lastRunAt: string | null
@@ -110,6 +114,8 @@ export function addProfile(input: Partial<Profile>): Profile {
     desktopMax: input.desktopMax ?? null,
     mobileMax: input.mobileMax ?? null,
     proxy: input.proxy ? input.proxy.trim() : null,
+    deviceSerial: input.deviceSerial ?? null,
+    devicePort: input.devicePort ?? 9411,
     proxyId: input.proxyId ?? null,
     proxyFallbacks: input.proxyFallbacks ?? null,
     note: input.note,

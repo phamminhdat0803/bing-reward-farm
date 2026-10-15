@@ -84,7 +84,20 @@ function getProxyProtocol(url: string): 'socks5' | 'socks4' | 'http' {
 }
 
 /** Tab "Proxy": kho proxy dùng chung, lọc tìm kiếm, test trực tiếp, xoá nhiều, biết tài khoản nào đang gắn. */
-export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: () => void }): React.JSX.Element {
+export function ProxyPanel({
+  rows,
+  onChanged,
+  testProgress = null,
+  onTestAll,
+  onTestSelected
+}: {
+  rows: RowState[]
+  onChanged: () => void
+  /** Tiến độ kiểm tra theo lô do App giữ (đổi tab không mất) */
+  testProgress?: { done: number; total: number; ok: number; error: number } | null
+  onTestAll?: () => void
+  onTestSelected?: (ids: string[]) => void
+}): React.JSX.Element {
   const [items, setItems] = useState<ProxyItem[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -111,10 +124,27 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
   useEffect(() => {
     void reload()
     const t = window.setInterval(() => void reload(), 30000)
-    return () => window.clearInterval(t)
+    // Cập nhật real-time từng dòng khi proxy test xong (tiến độ tổng do App hiển thị ở góc phải)
+    const unsub = window.api.onTestProgress?.((p) => {
+      setItems((prev) => prev.map((item) => (item.id === p.id ? { ...item, lastTest: p.result } : item)))
+    })
+    return () => {
+      window.clearInterval(t)
+      unsub?.()
+    }
   }, [])
 
-  const usersOf = (id: string): RowState[] => rows.filter((r) => r.profile.proxyId === id)
+  const usersOf = (idOrItem: string | ProxyItem): RowState[] => {
+    const item = typeof idOrItem === 'string' ? items.find((x) => x.id === idOrItem) : idOrItem
+    const id = typeof idOrItem === 'string' ? idOrItem : idOrItem.id
+    const url = item?.url
+    return rows.filter(
+      (r) =>
+        r.profile.proxyId === id ||
+        (url && r.profile.proxy === url) ||
+        (url && r.profile.proxyFallbacks && r.profile.proxyFallbacks.includes(url))
+    )
+  }
 
   const act = async (key: string, fn: () => Promise<void>): Promise<void> => {
     setBusy(key)
@@ -135,15 +165,10 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
       await reload()
     })
 
-  const testSelected = (): Promise<void> =>
-    act('test-selected', async () => {
-      if (!selectedIds.length) return
-      toast.info(`Đang kiểm tra ${selectedIds.length} proxy đã chọn…`)
-      const res = await window.api.testAllProxies(selectedIds)
-      const ok = Object.values(res).filter((r) => r.ok).length
-      toast.success(`Xong: ${ok}/${selectedIds.length} proxy hoạt động`)
-      await reload()
-    })
+  const testSelected = (): void => {
+    if (!selectedIds.length) return
+    onTestSelected?.(selectedIds)
+  }
 
   // Thống kê đếm cho các bộ lọc
   const counts = useMemo(() => {
@@ -376,18 +401,15 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
           size="sm"
           variant="tertiary"
           className="gap-1.5"
-          disabled={!items.length || busy === 'all'}
-          onClick={() =>
-            void act('all', async () => {
-              toast.info(`Đang kiểm tra ${items.length} proxy…`)
-              const res = await window.api.testAllProxies()
-              const ok = Object.values(res).filter((r) => r.ok).length
-              toast.success(`Xong: ${ok}/${items.length} proxy hoạt động`)
-              await reload()
-            })
-          }
+          disabled={!items.length || !!testProgress}
+          onClick={() => onTestAll?.()}
         >
-          <Wifi className={busy === 'all' ? 'size-3.5 animate-pulse' : 'size-3.5'} /> Kiểm tra tất cả
+          <Wifi className={testProgress ? 'size-3.5 opacity-50' : 'size-3.5'} /> Kiểm tra tất cả
+          {testProgress ? (
+            <span className="mm-tabular ml-0.5 text-[11.5px] text-[var(--stone)]">
+              {testProgress.done}/{testProgress.total}
+            </span>
+          ) : null}
         </Button>
         <Button size="sm" variant="tertiary" className="gap-1.5" onClick={() => void reload()}>
           <RefreshCw className="size-3.5" /> Nạp lại
@@ -402,10 +424,10 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
               size="sm"
               variant="tertiary"
               className="gap-1.5"
-              disabled={busy === 'test-selected'}
-              onClick={() => void testSelected()}
+              disabled={!!testProgress}
+              onClick={() => testSelected()}
             >
-              <Wifi className={busy === 'test-selected' ? 'size-3.5 animate-pulse' : 'size-3.5'} /> Kiểm tra đã chọn
+              <Wifi className="size-3.5" /> Kiểm tra đã chọn
             </Button>
             <Button size="sm" variant="danger" className="gap-1.5" onClick={deleteSelected}>
               <Trash2 className="size-3.5" /> Xoá đã chọn ({selectedIds.length})
@@ -423,7 +445,7 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
         ) : null}
 
         <span className="ml-auto text-[12.5px] text-[var(--stone)]">
-          {items.length} proxy · {rows.filter((r) => r.profile.proxyId).length} tài khoản đã gắn
+          {items.length} proxy · {rows.filter((r) => r.profile.proxyId || r.profile.proxy).length} tài khoản đã gắn
         </span>
       </div>
 
@@ -660,14 +682,22 @@ export function ProxyPanel({ rows, onChanged }: { rows: RowState[]; onChanged: (
                       </TableCell>
                       <TableCell>
                         {users.length === 0 ? (
-                          <span className="text-[12.5px] text-[var(--stone)]">chưa gắn</span>
+                          <span className="text-[12px] font-medium text-emerald-600">✓ chưa gắn</span>
                         ) : (
                           <div className="flex flex-wrap gap-1">
-                            {users.map((u) => (
-                              <Badge key={u.id} variant="outline">
-                                {u.profile.name}
-                              </Badge>
-                            ))}
+                            {users.map((u) => {
+                              const isMain = u.profile.proxyId === p.id || u.profile.proxy === p.url
+                              return (
+                                <Badge
+                                  key={u.id}
+                                  variant={isMain ? 'outline' : 'secondary'}
+                                  className={!isMain ? 'text-[11px] opacity-80' : 'text-[11px]'}
+                                  title={isMain ? 'Đang dùng làm proxy chính' : 'Đang dùng làm proxy dự phòng'}
+                                >
+                                  {u.profile.name}{!isMain ? ' (dự phòng)' : ''}
+                                </Badge>
+                              )
+                            })}
                           </div>
                         )}
                       </TableCell>

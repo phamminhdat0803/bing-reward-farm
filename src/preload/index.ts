@@ -6,6 +6,7 @@ import type {
   LogLine,
   Profile,
   ProxyItem,
+  ProxyTestProgress,
   ProxyTestResult,
   RefreshProgress,
   RowState,
@@ -21,7 +22,7 @@ const api = {
 
   openBrowser: (id: string): Promise<{ ok: boolean; cdpUrl?: string; pid?: number; error?: string }> =>
     ipcRenderer.invoke('browser:open', id),
-  closeBrowser: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('browser:close', id),
+  closeBrowser: (id: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('browser:close', id),
   browserState: (id: string): Promise<{ running: boolean; pid: number | null; cdpUrl: string | null }> =>
     ipcRenderer.invoke('browser:state', id),
   signOut: (id: string): Promise<{ ok: boolean; cleared: number; error?: string }> =>
@@ -52,6 +53,13 @@ const api = {
   testSavedProxy: (id: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxies:test', id),
   testAllProxies: (filterIds?: string[]): Promise<Record<string, ProxyTestResult>> =>
     ipcRenderer.invoke('proxies:testAll', filterIds),
+  cancelTestAll: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('proxies:cancelTestAll'),
+  /** Lang nghe tien do kiem tra tung proxy trong lo */
+  onTestProgress: (cb: (p: ProxyTestProgress) => void): (() => void) => {
+    const handler = (_e: unknown, p: ProxyTestProgress): void => cb(p)
+    ipcRenderer.on('proxies:testProgress', handler)
+    return () => ipcRenderer.removeListener('proxies:testProgress', handler)
+  },
   /** Trang thai suc khoe proxy da do (key = proxyId) */
   /** Bao khi suc khoe proxy thay doi (test xong, health loop do xong) */
   onHealthChanged: (cb: () => void): (() => void) => {

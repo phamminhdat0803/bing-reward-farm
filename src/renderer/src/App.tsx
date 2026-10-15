@@ -13,6 +13,7 @@ import { AccountDrawer } from '@renderer/components/AccountDrawer'
 import { BrowsersDialog } from '@renderer/components/BrowsersDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
 import { ProxyPanel } from '@renderer/components/ProxyPanel'
+import { ProxyTestFab, type ProxyTestState } from '@renderer/components/ProxyTestFab'
 import { LogDock } from '@renderer/components/LogDock'
 import { StatStrip } from '@renderer/components/StatStrip'
 import { Toaster } from '@renderer/components/ui/sonner'
@@ -34,7 +35,7 @@ export default function App(): React.JSX.Element {
   const [waiting, setWaiting] = useState<{ profileId: string; name: string; position: number }[]>([])
   /** 0 = không giới hạn tổng (các acc chạy song song) */
   const [queueMax, setQueueMax] = useState(0)
-  const [refreshing, setRefreshing] = useState<{ done: number; total: number } | null>(null)
+  const [refreshing, setRefreshing] = useState<{ done: number; total: number; parallel?: number } | null>(null)
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -53,6 +54,8 @@ export default function App(): React.JSX.Element {
     Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string; checkedAt: string }>
   >({})
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
+  /** Tiến độ kiểm tra proxy theo lô — để ở App nên chuyển tab qua lại không mất */
+  const [proxyTest, setProxyTest] = useState<ProxyTestState | null>(null)
 
   const activeRow = useMemo(() => rows.find((r) => r.id === activeId) ?? null, [rows, activeId])
   const filtered = useMemo(() => {
@@ -109,15 +112,18 @@ export default function App(): React.JSX.Element {
       }
     })
     const offSnap = window.api.onSnapshot(() => void reload())
+    const offProxyTest = window.api.onTestProgress?.((p) =>
+      setProxyTest({ done: p.done, total: p.total, ok: p.ok, error: p.error })
+    )
     const offProg = window.api.onRefreshProgress((p: RefreshProgress) => {
       if (p.done >= p.total) {
-        setRefreshing({ done: p.done, total: p.total })
+        setRefreshing({ done: p.done, total: p.total, parallel: p.parallel })
         setTimeout(() => {
           setRefreshing((cur) => (cur && cur.done >= cur.total ? null : cur))
           setRefreshingId(null)
         }, 500)
       } else {
-        setRefreshing({ done: p.done, total: p.total })
+        setRefreshing({ done: p.done, total: p.total, parallel: p.parallel })
         if (p.profileId) setRefreshingId(p.profileId)
       }
     })
@@ -154,6 +160,7 @@ export default function App(): React.JSX.Element {
       offLog()
       offSnap()
       offProg()
+      offProxyTest?.()
       offRefreshDone?.()
       offRun()
       offRunProg()
@@ -166,6 +173,32 @@ export default function App(): React.JSX.Element {
   }, [reload])
 
   const runningRows = useMemo(() => rows.filter((r) => r.run.running), [rows])
+
+  /** Chạy kiểm tra proxy theo lô — state ở App nên đổi tab vẫn thấy tiến độ. */
+  const runProxyTest = async (ids?: string[]): Promise<void> => {
+    if (proxyTest) {
+      toast.info('Đang có lượt kiểm tra proxy chạy — chờ xong hoặc bấm Dừng.')
+      return
+    }
+    const total = ids?.length ?? proxies.length
+    if (total === 0) {
+      toast.error('Kho proxy đang trống.')
+      return
+    }
+    setProxyTest({ done: 0, total, ok: 0, error: 0 })
+    try {
+      const res = await window.api.testAllProxies(ids)
+      const ok = Object.values(res).filter((r) => r.ok).length
+      toast.success(`Kiểm tra xong: ${ok}/${total} proxy hoạt động`)
+    } catch (e) {
+      toast.error(String((e as Error).message).slice(0, 200))
+    } finally {
+      const l = await window.api.listProxies()
+      setProxies(l)
+      setProxyCount(l.length)
+      setProxyTest(null)
+    }
+  }
 
   const anyRunning = rows.some((r) => r.run.running)
   const anyBrowserOpen = rows.some((r) => r.browser.running)
@@ -208,8 +241,9 @@ export default function App(): React.JSX.Element {
         if (!r.ok) throw new Error(r.error ?? 'không mở được trình duyệt')
         toast.success(`Đã mở trình duyệt (CDP ${r.cdpUrl})`)
       } else {
-        await window.api.closeBrowser(id)
-        toast.info('Đã đóng trình duyệt.')
+        const r = await window.api.closeBrowser(id)
+        if (r.ok === false) throw new Error(r.error ?? 'không đóng được trình duyệt')
+        toast.success('Đã đóng trình duyệt.')
       }
       await reload()
     })
@@ -381,6 +415,29 @@ export default function App(): React.JSX.Element {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]">Cập nhật song song</span>
+                  <select
+                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
+                    value={settings?.refreshParallel ?? 3}
+                    onChange={async (e) => {
+                      const v = Number(e.target.value)
+                      const next = await window.api.setSettings({ refreshParallel: v })
+                      setSettingsState(next)
+                      toast.info(
+                        v === 1
+                          ? 'Cập nhật trạng thái sẽ chạy TUẦN TỰ từng tài khoản.'
+                          : `Cập nhật trạng thái mở ${v} trình duyệt cùng lúc (nhanh hơn ~${v}×).`
+                      )
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                      <option key={n} value={n}>
+                        {n === 1 ? 'Tuần tự' : `${n} acc`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Giới hạn tổng (tuỳ chọn)</span>
                   <select
                     className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
@@ -507,6 +564,9 @@ export default function App(): React.JSX.Element {
         ) : (
           <ProxyPanel
             rows={rows}
+            testProgress={proxyTest}
+            onTestAll={() => void runProxyTest()}
+            onTestSelected={(ids) => void runProxyTest(ids)}
             onChanged={() => {
               void window.api.listProxies().then((l) => {
                 setProxyCount(l.length)
@@ -517,14 +577,25 @@ export default function App(): React.JSX.Element {
           />
         )}
 
-{/* Nut tron noi: so tai khoan dang chay + popover tien do (kieu badge upload cua Google Drive) */}
+        {/* Góc phải dưới: cục tròn tiến độ — kiểm tra proxy + acc đang chạy (giữ nguyên khi đổi tab) */}
+        <div className="pointer-events-none fixed bottom-[64px] right-5 z-40 flex flex-col items-end gap-2">
+          <div className="pointer-events-auto">
+            <ProxyTestFab
+              state={proxyTest}
+              onStop={() => {
+                void window.api.cancelTestAll?.()
+                toast.info('Đang dừng kiểm tra proxy…')
+              }}
+            />
+          </div>
+          <div className="pointer-events-auto contents">
         {runningRows.length > 0 || queue.length > 0 || waiting.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 data-slot="run-fab"
-                className="fixed bottom-[66px] right-5 z-40 flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:scale-[1.06]"
+                className="relative flex size-12 shrink-0 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-colors hover:bg-[var(--surface-soft)] focus-visible:ring-2 focus-visible:ring-[var(--brand-blue-deep)]/30 focus-visible:outline-none data-[state=open]:bg-[var(--surface-soft)]"
                 title={`${runningRows.length} acc đang chạy song song${queue.length ? ` · ${queue.reduce((s, q) => s + q.pending, 0)} lệnh đang chờ` : ''}${queueMax > 0 ? ` · giới hạn tổng ${queueMax}` : ' · không giới hạn tổng'} — bấm để xem tiến độ`}
                 aria-label={`${runningRows.length} tài khoản đang chạy${queue.length ? `, ${queue.reduce((s, q) => s + q.pending, 0)} lệnh đang chờ` : ''}`}
               >
@@ -534,12 +605,18 @@ export default function App(): React.JSX.Element {
                 </span>
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" sideOffset={8} className="w-[350px] p-0">
+            <DropdownMenuContent
+              align="end"
+              side="top"
+              sideOffset={8}
+              avoidCollisions={false}
+              className="flex w-[350px] flex-col overflow-hidden p-0"
+            >
               <div className="flex items-center justify-between border-b border-[var(--hairline-soft)] px-3 py-2">
                 <span className="text-[12.5px] font-semibold">Đang chạy ({runningRows.length})</span>
                 <span className="mm-micro">bấm ra ngoài để đóng</span>
               </div>
-              <div className="max-h-[320px] overflow-auto p-2">
+              <div className="h-[264px] shrink-0 overflow-y-auto overflow-x-hidden p-2">
                 {runningRows.map((r) => {
                   const pr = progress[r.id]
                   const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
@@ -586,7 +663,7 @@ export default function App(): React.JSX.Element {
                   )
                 })}
                 {queue.length > 0 ? (
-                  <div className="mt-2 border-t border-[var(--hairline-soft)] pt-2">
+                  <div className="max-h-[132px] shrink-0 overflow-y-auto border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
                     <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
                       Lệnh chờ của cùng acc ({queue.reduce((s, q) => s + q.pending, 0)})
                     </div>
@@ -602,7 +679,7 @@ export default function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {waiting.length > 0 ? (
-                  <div className="mt-2 border-t border-[var(--hairline-soft)] pt-2">
+                  <div className="max-h-[132px] shrink-0 overflow-y-auto border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
                     <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
                       Chờ slot ({waiting.length}) — giới hạn tổng {queueMax}
                     </div>
@@ -621,6 +698,8 @@ export default function App(): React.JSX.Element {
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
+          </div>
+        </div>
 
         <LogDock
           lines={logs}

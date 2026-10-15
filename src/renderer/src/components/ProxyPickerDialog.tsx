@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState  } from 'react'
-import { ArrowUpDown, Check, Search, Wifi } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { ArrowUpDown, Check, Search, Wifi, Zap } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -52,7 +52,8 @@ export function ProxyPickerDialog({
   items,
   rows,
   value,
-  onPick
+  onPick,
+  onQuickFill3
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -60,14 +61,24 @@ export function ProxyPickerDialog({
   rows: RowState[]
   value: string
   onPick: (id: string) => void
+  onQuickFill3?: () => void
 }): React.JSX.Element {
   const { ref: areaRef, onWheel } = useWheelToScroll()
   const [q, setQ] = useState('')
   const [sortBy, setSortBy] = useState<SortBy>('latency-asc')
   const [onlyFree, setOnlyFree] = useState(false)
 
-  const usersOf = (id: string): string[] =>
-    rows.filter((r) => r.profile.proxyId === id).map((r) => r.profile.name)
+  const usersOf = (p: ProxyItem): { name: string; isMain: boolean }[] => {
+    const res: { name: string; isMain: boolean }[] = []
+    for (const r of rows) {
+      if (r.profile.proxyId === p.id || r.profile.proxy === p.url) {
+        res.push({ name: r.profile.name, isMain: true })
+      } else if (r.profile.proxyFallbacks?.includes(p.url)) {
+        res.push({ name: r.profile.name, isMain: false })
+      }
+    }
+    return res
+  }
 
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -75,7 +86,7 @@ export function ProxyPickerDialog({
       p.lastTest?.ok && p.lastTest.latency != null ? p.lastTest.latency : Number.POSITIVE_INFINITY
     let arr = items.filter((p) => {
       const t = p.lastTest
-      if (onlyFree && usersOf(p.id).length > 0) return false
+      if (onlyFree && usersOf(p).length > 0) return false
       if (!needle) return true
       return (
         p.label.toLowerCase().includes(needle) ||
@@ -97,7 +108,7 @@ export function ProxyPickerDialog({
         return lb - la
       })
     else if (sortBy === 'label') arr.sort((a, b) => a.label.localeCompare(b.label))
-    else arr.sort((a, b) => usersOf(a.id).length - usersOf(b.id).length)
+    else arr.sort((a, b) => usersOf(a).length - usersOf(b).length)
     return arr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, rows, q, sortBy, onlyFree])
@@ -146,6 +157,21 @@ export function ProxyPickerDialog({
           >
             Chỉ proxy chưa gắn
           </Button>
+          {onQuickFill3 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="h-8 gap-1.5 text-[12px] font-medium text-[var(--brand-blue-deep)]"
+              onClick={() => {
+                onQuickFill3()
+                onOpenChange(false)
+              }}
+              title="Tự động chọn 3 proxy sạch có độ trễ thấp nhất"
+            >
+              <Zap className="size-3.5 fill-amber-500 text-amber-500" />
+              ⚡ Gán nhanh 3 proxy sạch
+            </Button>
+          ) : null}
         </div>
 
         <ScrollArea ref={areaRef} className="min-h-0 flex-1">
@@ -175,7 +201,7 @@ export function ProxyPickerDialog({
             ) : (
               list.map((p) => {
                 const t = p.lastTest
-                const users = usersOf(p.id)
+                const users = usersOf(p)
                 return (
                   <button
                     key={p.id}
@@ -210,16 +236,26 @@ export function ProxyPickerDialog({
                         </div>
                       ) : null}
                     </div>
-                    <div className="flex max-w-[220px] shrink-0 flex-wrap justify-end gap-1">
+                    <div className="flex max-w-[240px] shrink-0 items-center justify-end gap-1.5">
                       {users.length === 0 ? (
-                        <span className="text-[11.5px] text-[var(--stone)]">chưa gắn</span>
+                        <Badge variant="success" className="h-5 px-1.5 text-[11px] font-medium">
+                          ✓ Sạch (chưa gắn)
+                        </Badge>
                       ) : (
-                        users.map((n) => (
-                          <Badge key={n} variant="outline">
-                            {n}
-                          </Badge>
-                        ))
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {users.map((u) => (
+                            <Badge
+                              key={u.name}
+                              variant={u.isMain ? 'outline' : 'secondary'}
+                              className={!u.isMain ? 'h-5 px-1.5 text-[11px] opacity-80' : 'h-5 px-1.5 text-[11px]'}
+                              title={u.isMain ? 'Đang dùng làm proxy chính' : 'Đang dùng làm proxy dự phòng'}
+                            >
+                              {u.name}{!u.isMain ? ' (dự phòng)' : ''}
+                            </Badge>
+                          ))}
+                        </div>
                       )}
+                      {value === p.id ? <Check className="size-4 shrink-0 text-[var(--brand-blue-deep)]" /> : null}
                     </div>
                   </button>
                 )

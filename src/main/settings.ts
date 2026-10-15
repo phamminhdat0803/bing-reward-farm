@@ -6,8 +6,13 @@ import { app } from 'electron'
 export type Settings = {
   /** Sang ngay moi thi tu mo trinh duyet lay point (nguoi dung bat/tat) */
   autoRefreshOnNewDay: boolean
-  /** So giay cho giua 2 profile khi cap nhat hang loat */
+  /** So giay cho giua 2 profile khi cap nhat hang loat (chi de lech nhip khoi dong) */
   refreshGapMs: number
+  /**
+   * So tai khoan cap nhat point SONG SONG khi bam "Cap nhat trang thai".
+   * Moi acc la 1 profile + 1 cua so rieng nen chay song song duoc; 1 = chay tuan tu.
+   */
+  refreshParallel: number
   /**
    * BAT = khi toan bo proxy deu chet thi DUNG profile, khong bao gio roi ve mang that (DIRECT).
    * TAT = cho phep chay truc tiep bang IP cua may khi het proxy (khong khuyen nghi).
@@ -24,7 +29,8 @@ export type Settings = {
 
 const DEFAULTS: Settings = {
   autoRefreshOnNewDay: true,
-  refreshGapMs: 2000,
+  refreshGapMs: 800,
+  refreshParallel: 3,
   noDirectFallback: true,
   runHeadless: false,
   maxParallelRuns: 0

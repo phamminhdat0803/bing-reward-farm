@@ -16,6 +16,10 @@ export type Profile = {
   mobileMax?: number | null
   /** Chuoi proxy: vd http://host:port, socks5://host:port, hoac host:port:user:pass */
   proxy?: string | null
+  /** Serial thiet bi Android (adb devices) de chay pass mobile tren dien thoai that */
+  deviceSerial?: string | null
+  /** Cong CDP forward sang dien thoai (mac dinh 9411) */
+  devicePort?: number | null
   /** Id proxy trong kho (tab "Proxy") — uu tien hon `proxy` */
   proxyId?: string | null
   /** Proxy du phong theo thu tu (sau proxy chinh) */
@@ -34,6 +38,15 @@ export type ProxyTestResult = {
   city?: string
   latency?: number
   error?: string
+}
+
+export type ProxyTestProgress = {
+  done: number
+  total: number
+  ok: number
+  error: number
+  id: string
+  result: ProxyTestResult & { at: string }
 }
 
 export type Progress = { progress: number; max: number } | null
@@ -104,9 +117,11 @@ export type AppSettings = {
   maxParallelRuns?: number
   autoRefreshOnNewDay: boolean
   refreshGapMs: number
+  /** Số tài khoản cập nhật point SONG SONG khi bấm "Cập nhật trạng thái" (1 = tuần tự) */
+  refreshParallel?: number
 }
 
-export type RefreshProgress = { done: number; total: number; profileId: string }
+export type RefreshProgress = { done: number; total: number; profileId: string; parallel?: number }
 
 export type DetectedBrowser = {
   id: string

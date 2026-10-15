@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState  } from 'react'
-import { ChevronDown, ChevronUp, Plus, Wifi, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { Check, ChevronDown, ChevronUp, Plus, Trash2, Wifi, Zap } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -13,7 +14,6 @@ import { Input } from '@renderer/components/ui/input'
 import { Label } from '@renderer/components/ui/label'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { ProxyPickerDialog } from '@renderer/components/ProxyPickerDialog'
-import { Check } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import type { DetectedBrowser, Profile, ProxyItem, ProxyTestResult, RowState } from '@shared/types'
 
@@ -76,8 +76,18 @@ export function AccountDialog({
   useEffect(() => {
     if (!open) return
     void window.api.detectBrowsers().then((list) => setBrowsers(list.filter((b) => b.chromium)))
-    void window.api.listProxies().then(setProxyList)
-  }, [open])
+    void window.api.listProxies().then((list) => {
+      setProxyList(list)
+      // Tự động map nếu initial có proxy URL nhưng chưa có proxyId
+      setProxyId((cur) => {
+        if (!cur && initial?.proxy) {
+          const match = list.find((p) => p.url === initial.proxy)
+          if (match) return match.id
+        }
+        return cur
+      })
+    })
+  }, [open, initial])
 
   useEffect(() => {
     if (!open) return
@@ -87,7 +97,13 @@ export function AccountDialog({
     setCdpPort(initial?.cdpPort ? String(initial.cdpPort) : '')
     setNote(initial?.note ?? '')
     setChannel(initial?.channel ?? 'msedge')
-    setProxyId(initial?.proxyId ?? '')
+
+    let initialPid = initial?.proxyId ?? ''
+    if (!initialPid && initial?.proxy) {
+      const match = proxyList.find((p) => p.url === initial.proxy)
+      if (match) initialPid = match.id
+    }
+    setProxyId(initialPid)
     setProxyFallbacks((initial?.proxyFallbacks ?? []).filter(Boolean))
     setPickerOpen(false)
     setProxyResult(null)
@@ -113,9 +129,89 @@ export function AccountDialog({
       setCustomDesktopMax('')
       setCustomMobileMax('')
     }
-  }, [open, initial])
+  }, [open, initial, proxyList])
 
   const selectedProxy = proxyList.find((p) => p.id === proxyId) ?? null
+
+  const selectedProxyUsers = useMemo(() => {
+    if (!selectedProxy) return []
+    return rows
+      .filter((r) => !initial || r.id !== initial.id)
+      .filter(
+        (r) =>
+          r.profile.proxyId === selectedProxy.id ||
+          r.profile.proxy === selectedProxy.url ||
+          r.profile.proxyFallbacks?.includes(selectedProxy.url)
+      )
+      .map((r) => r.profile.name)
+  }, [selectedProxy, rows, initial])
+
+  const handleQuickFill3CleanProxies = (): void => {
+    if (!proxyList.length) {
+      toast.error('Kho proxy đang trống! Hãy thêm proxy ở tab "Proxy" trước.')
+      return
+    }
+
+    // Tập hợp tất cả proxy URL đang được bất kỳ tài khoản nào khác sử dụng (cả main và fallback)
+    const usedUrls = new Set<string>()
+    for (const r of rows) {
+      if (initial && r.id === initial.id) continue
+      if (r.profile.proxyId) {
+        const item = proxyList.find((x) => x.id === r.profile.proxyId)
+        if (item) usedUrls.add(item.url)
+      }
+      if (r.profile.proxy) usedUrls.add(r.profile.proxy)
+      for (const fb of r.profile.proxyFallbacks ?? []) {
+        if (fb) usedUrls.add(fb)
+      }
+    }
+
+    // 1. Lọc proxy hoàn toàn chưa acc nào dùng
+    const freeList = proxyList.filter((p) => !usedUrls.has(p.url))
+
+    if (!freeList.length) {
+      toast.error('Không còn proxy nào chưa sử dụng trong kho!')
+      return
+    }
+
+    // 2. Ưu tiên proxy đã test OK, sắp xếp theo ping thấp nhất
+    const liveFree = freeList
+      .filter((p) => p.lastTest?.ok && p.lastTest.latency != null)
+      .sort((a, b) => a.lastTest!.latency! - b.lastTest!.latency!)
+
+    let picks: ProxyItem[] = []
+    if (liveFree.length >= 3) {
+      picks = liveFree.slice(0, 3)
+    } else {
+      // Nếu không đủ 3 proxy đã test OK, lấy hết liveFree rồi bù thêm proxy sạch chưa test
+      picks = [...liveFree]
+      const remainingFree = freeList.filter((p) => !picks.some((x) => x.id === p.id))
+      picks.push(...remainingFree.slice(0, 3 - picks.length))
+    }
+
+    if (!picks.length) {
+      toast.error('Không tìm thấy proxy phù hợp!')
+      return
+    }
+
+    // Gán:
+    // Proxy 0 -> làm Proxy chính
+    setProxyId(picks[0].id)
+    setProxyResult(picks[0].lastTest ?? null)
+
+    // Proxy 1 & 2 -> làm Proxy dự phòng
+    const fallbacks = picks.slice(1).map((p) => p.url)
+    setProxyFallbacks(fallbacks)
+
+    const mainLat = picks[0].lastTest?.latency ? ` (${picks[0].lastTest.latency}ms)` : ''
+    const fbInfo = picks
+      .slice(1)
+      .map((p) => `${p.label}${p.lastTest?.latency ? ` (${p.lastTest.latency}ms)` : ''}`)
+      .join(', ')
+    toast.success(`Đã gán nhanh ${picks.length} proxy sạch (latency thấp)!`, {
+      description: `Chính: ${picks[0].label}${mainLat}${fbInfo ? ` • Dự phòng: ${fbInfo}` : ''}`
+    })
+  }
 
   const handleTestProxy = async (): Promise<void> => {
     if (!selectedProxy) return
@@ -361,63 +457,141 @@ export function AccountDialog({
           {/* ---------- NÂNG CAO ---------- */}
           <div className="space-y-3">
             <div>
-                <div className="grid gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label>Proxy</Label>
-                    <Button
-                      type="button"
-                      variant="tertiary"
-                      size="sm"
-                      className="h-6 gap-1 px-2 text-[11.5px]"
-                      disabled={testingProxy || !selectedProxy}
-                      onClick={handleTestProxy}
-                    >
-                      <Wifi className={testingProxy ? 'size-3 animate-spin' : 'size-3'} />
-                      {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra'}
-                    </Button>
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label className="text-[13px] font-semibold">Proxy & Dự phòng</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-6.5 gap-1.5 px-2.5 text-[11.5px] font-medium text-[var(--brand-blue-deep)] hover:bg-[var(--brand-blue-deep)]/10"
+                        onClick={handleQuickFill3CleanProxies}
+                        title="Tự động tìm 3 proxy trong kho chưa từng được tài khoản nào sử dụng, có độ trễ (ping) thấp nhất đã test OK"
+                      >
+                        <Zap className="size-3 fill-amber-500 text-amber-500" />
+                        ⚡ Gán nhanh 3 proxy sạch (ping thấp)
+                      </Button>
+                      {selectedProxy ? (
+                        <Button
+                          type="button"
+                          variant="tertiary"
+                          size="sm"
+                          className="h-6.5 gap-1 px-2 text-[11.5px]"
+                          disabled={testingProxy}
+                          onClick={handleTestProxy}
+                        >
+                          <Wifi className={testingProxy ? 'size-3 animate-spin' : 'size-3'} />
+                          {testingProxy ? 'Đang kiểm tra…' : 'Kiểm tra'}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
 
-                  {/* 1 card duy nhat: bam vao mo hop chon proxy (co tim kiem + sap xep) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPickerMode('main')
-                      setPickerOpen(true)
-                    }}
-                    className="flex items-center justify-between gap-3 rounded-[10px] border border-[var(--hairline)] px-3 py-2 text-left transition hover:bg-[var(--surface)]"
-                  >
-                    <div className="min-w-0">
-                      {selectedProxy ? (
-                        <>
-                          <div className="flex items-center gap-2 whitespace-nowrap">
-                            <span className="truncate text-[13px] font-semibold">{selectedProxy.label}</span>
+                  {/* Card Proxy chính: thể hiện rõ ràng proxy đã chọn, ping và trạng thái sạch / trùng acc khác */}
+                  <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--hairline)] bg-[var(--surface)]/40 p-3 text-left transition hover:border-[var(--hairline-strong)]">
+                    {selectedProxy ? (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-semibold text-[var(--ink)]">{selectedProxy.label}</span>
                             {selectedProxy.lastTest?.ok ? (
-                              <Badge variant="success">
+                              <Badge variant="success" className="gap-1 text-[11px]">
                                 {selectedProxy.lastTest.latency != null ? `${selectedProxy.lastTest.latency}ms` : 'OK'}
                               </Badge>
                             ) : selectedProxy.lastTest ? (
-                              <Badge variant="destructive">LỖI</Badge>
+                              <Badge variant="destructive" className="text-[11px]">
+                                LỖI
+                              </Badge>
                             ) : (
-                              <Badge variant="outline">chưa test</Badge>
+                              <Badge variant="outline" className="text-[11px]">
+                                chưa test
+                              </Badge>
                             )}
                           </div>
-                          <div className="mm-micro truncate">{selectedProxy.url}</div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="text-[13px] font-semibold">Không dùng proxy</div>
-                          <div className="mm-micro">Bấm để chọn proxy từ kho ({proxyList.length} proxy)</div>
-                        </>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[12px] font-medium text-[var(--brand-blue-deep)]">Chọn proxy…</span>
-                  </button>
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="tertiary"
+                              className="h-6 px-2 text-[11.5px] text-[var(--brand-blue-deep)]"
+                              onClick={() => {
+                                setPickerMode('main')
+                                setPickerOpen(true)
+                              }}
+                            >
+                              Đổi proxy
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-[11.5px] text-[var(--stone)] hover:text-[var(--error)]"
+                              onClick={() => {
+                                setProxyId('')
+                                setProxyResult(null)
+                                toast.info('Đã chuyển sang không dùng proxy chính.')
+                              }}
+                            >
+                              Bỏ chọn
+                            </Button>
+                          </div>
+                        </div>
 
-                  {/* Proxy dự phòng: thứ tự từ trên xuống, Chromium thử lần lượt khi proxy trước lỗi */}
-                  <div className="grid gap-1.5 rounded-[10px] border border-[var(--hairline)] px-2.5 py-2">
+                        <div className="flex items-center gap-2 text-[12px] font-mono text-[var(--steel)]">
+                          <code className="truncate">{selectedProxy.url}</code>
+                          {selectedProxy.lastTest?.ip ? (
+                            <span className="text-[11px] font-sans text-[var(--stone)]">
+                              (IP: {selectedProxy.lastTest.ip}
+                              {selectedProxy.lastTest.country ? ` · ${selectedProxy.lastTest.country}` : ''})
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* Báo rõ ràng proxy này đã được sài ở đâu chưa */}
+                        <div className="flex items-center gap-2 border-t border-[var(--hairline-soft)] pt-1.5">
+                          {selectedProxyUsers.length === 0 ? (
+                            <span className="flex items-center gap-1 text-[11.5px] font-medium text-emerald-600">
+                              <Check className="size-3.5" /> Chưa tài khoản nào dùng (Proxy sạch hoàn toàn)
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[11.5px] font-medium text-amber-600">
+                              ⚠️ Đang dùng bởi {selectedProxyUsers.length} tài khoản khác: {selectedProxyUsers.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center justify-between py-1">
+                        <div>
+                          <div className="text-[13px] font-semibold text-[var(--ink)]">Không dùng proxy chính</div>
+                          <div className="mm-micro">
+                            Bấm nút bên phải hoặc "⚡ Gán nhanh" để chọn proxy từ kho ({proxyList.length} proxy)
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="tertiary"
+                          className="h-7 px-2.5 text-[12px] font-medium text-[var(--brand-blue-deep)]"
+                          onClick={() => {
+                            setPickerMode('main')
+                            setPickerOpen(true)
+                          }}
+                        >
+                          Chọn proxy…
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Proxy dự phòng: thứ tự từ trên xuống, Chromium tự fallback khi proxy trước lỗi */}
+                  <div className="grid gap-2 rounded-[10px] border border-[var(--hairline)] bg-[var(--surface)]/30 p-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-[12.5px] font-semibold">Proxy dự phòng (theo thứ tự)</div>
+                        <div className="text-[12.5px] font-semibold">
+                          Proxy dự phòng ({proxyFallbacks.length})
+                        </div>
                         <div className="mm-micro">
                           Thử lần lượt: proxy chính → dự phòng 1 → 2… Hết tất cả thì DỪNG, không dùng IP thật.
                         </div>
@@ -426,73 +600,134 @@ export function AccountDialog({
                         type="button"
                         variant="tertiary"
                         size="sm"
-                        className="h-6 shrink-0 gap-1 px-2 text-[11.5px]"
+                        className="h-6.5 shrink-0 gap-1 px-2.5 text-[11.5px]"
                         onClick={() => {
                           setPickerMode('fallback')
                           setPickerOpen(true)
                         }}
                       >
-                        <Plus className="size-3" /> Thêm
+                        <Plus className="size-3" /> Thêm dự phòng
                       </Button>
                     </div>
 
                     {proxyFallbacks.length === 0 ? (
-                      <div className="mm-micro">Chưa có proxy dự phòng.</div>
+                      <div className="rounded-[8px] border border-dashed border-[var(--hairline)] p-2 text-center text-[12px] text-[var(--stone)]">
+                        Chưa có proxy dự phòng. Bấm "Thêm dự phòng" hoặc nút "⚡ Gán nhanh" phía trên.
+                      </div>
                     ) : (
-                      proxyFallbacks.map((url, i) => (
-                        <div key={url + '-' + i} className="flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1">
-                          <span className="mm-tabular w-4 shrink-0 text-[11.5px] text-[var(--stone)]">{i + 1}</span>
-                          <span className="min-w-0 flex-1 truncate text-[12px]" title={url}>
-                            {url}
-                          </span>
-                          <Button
-                            type="button"
-                            size="icon-sm"
-                            variant="ghost"
-                            title="Lên"
-                            disabled={i === 0}
-                            onClick={() =>
-                              setProxyFallbacks((prev) => {
-                                const n = [...prev]
-                                const tmp = n[i - 1]
-                                n[i - 1] = n[i]
-                                n[i] = tmp
-                                return n
-                              })
-                            }
-                          >
-                            <ChevronUp className="size-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="icon-sm"
-                            variant="ghost"
-                            title="Xuống"
-                            disabled={i === proxyFallbacks.length - 1}
-                            onClick={() =>
-                              setProxyFallbacks((prev) => {
-                                const n = [...prev]
-                                const tmp = n[i + 1]
-                                n[i + 1] = n[i]
-                                n[i] = tmp
-                                return n
-                              })
-                            }
-                          >
-                            <ChevronDown className="size-3.5" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="icon-sm"
-                            variant="ghost"
-                            title="Bỏ khỏi danh sách dự phòng"
-                            className="text-[var(--error)]"
-                            onClick={() => setProxyFallbacks((prev) => prev.filter((_, k) => k !== i))}
-                          >
-                            <X className="size-3.5" />
-                          </Button>
-                        </div>
-                      ))
+                      <div className="space-y-1.5">
+                        {proxyFallbacks.map((url, i) => {
+                          const item = proxyList.find((p) => p.url === url)
+                          const fbUsers = rows
+                            .filter((r) => !initial || r.id !== initial.id)
+                            .filter(
+                              (r) =>
+                                r.profile.proxyId === item?.id ||
+                                r.profile.proxy === url ||
+                                r.profile.proxyFallbacks?.includes(url)
+                            )
+                            .map((r) => r.profile.name)
+                          const isClean = fbUsers.length === 0
+
+                          return (
+                            <div
+                              key={url + '-' + i}
+                              className="flex items-center justify-between gap-2 rounded-[8px] border border-[var(--hairline-soft)] bg-[var(--canvas)] px-2.5 py-1.5"
+                            >
+                              <span className="mm-tabular w-5 shrink-0 font-semibold text-[11.5px] text-[var(--stone)]">
+                                #{i + 1}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="truncate text-[12.5px] font-medium text-[var(--ink)]">
+                                    {item?.label ?? url}
+                                  </span>
+                                  {item?.lastTest?.ok && item.lastTest.latency != null ? (
+                                    <Badge variant="success" className="h-4 px-1 text-[10px]">
+                                      {item.lastTest.latency}ms
+                                    </Badge>
+                                  ) : item?.lastTest ? (
+                                    <Badge variant="destructive" className="h-4 px-1 text-[10px]">
+                                      LỖI
+                                    </Badge>
+                                  ) : null}
+                                  {isClean ? (
+                                    <span className="text-[11px] font-medium text-emerald-600">✓ Sạch</span>
+                                  ) : (
+                                    <span
+                                      className="truncate text-[11px] text-amber-600"
+                                      title={`Đang dùng bởi: ${fbUsers.join(', ')}`}
+                                    >
+                                      ⚠️ Trùng {fbUsers.length} acc
+                                    </span>
+                                  )}
+                                </div>
+                                {item ? (
+                                  <div className="truncate font-mono text-[11px] text-[var(--stone)]">{url}</div>
+                                ) : null}
+                              </div>
+
+                              <div className="flex items-center gap-0.5">
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  className="size-6 text-[var(--steel)]"
+                                  title="Đưa lên trước"
+                                  disabled={i === 0}
+                                  onClick={() =>
+                                    setProxyFallbacks((prev) => {
+                                      const n = [...prev]
+                                      const tmp = n[i - 1]
+                                      n[i - 1] = n[i]
+                                      n[i] = tmp
+                                      return n
+                                    })
+                                  }
+                                >
+                                  <ChevronUp className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  className="size-6 text-[var(--steel)]"
+                                  title="Đưa xuống sau"
+                                  disabled={i === proxyFallbacks.length - 1}
+                                  onClick={() =>
+                                    setProxyFallbacks((prev) => {
+                                      const n = [...prev]
+                                      const tmp = n[i + 1]
+                                      n[i + 1] = n[i]
+                                      n[i] = tmp
+                                      return n
+                                    })
+                                  }
+                                >
+                                  <ChevronDown className="size-3.5" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  className="size-6 text-[var(--stone)] hover:text-[var(--error)]"
+                                  title="Bỏ khỏi danh sách dự phòng"
+                                  onClick={() =>
+                                    setProxyFallbacks((prev) => {
+                                      const removed = prev[i]
+                                      const itemRemoved = proxyList.find((x) => x.url === removed)
+                                      toast.info(`Đã xoá dự phòng: ${itemRemoved?.label ?? removed}`)
+                                      return prev.filter((_, idx) => idx !== i)
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     )}
                   </div>
 
@@ -545,14 +780,26 @@ export function AccountDialog({
         rows={rows}
         value={proxyId}
         onPick={(id) => {
-          const url = id ? proxyList.find((x) => x.id === id)?.url : null
+          const item = id ? proxyList.find((x) => x.id === id) : null
+          const url = item?.url
           if (pickerMode === 'fallback') {
-            if (url) setProxyFallbacks((prev) => (prev.includes(url) ? prev : [...prev, url]))
+            if (url) {
+              setProxyFallbacks((prev) => {
+                if (prev.includes(url)) {
+                  toast.info('Proxy này đã có trong danh sách dự phòng.')
+                  return prev
+                }
+                toast.success(`Đã thêm proxy dự phòng: ${item?.label ?? url}`)
+                return [...prev, url]
+              })
+            }
             return
           }
           setProxyId(id)
-          setProxyResult(proxyList.find((x) => x.id === id)?.lastTest ?? null)
+          setProxyResult(item?.lastTest ?? null)
+          toast.success(id ? `Đã chọn proxy chính: ${item?.label ?? id}` : 'Đã chuyển sang không dùng proxy')
         }}
+        onQuickFill3={handleQuickFill3CleanProxies}
       />
 
     </Dialog>

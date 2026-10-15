@@ -126,6 +126,18 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 
 ## Quy ước UI
 
+- **Góc phải dưới = nơi báo tiến độ** (người dùng yêu cầu 2026-10-15): KHÔNG dùng banner ngang trong nội dung.
+  Hai cục tròn `size-12` xếp trong 1 cột `fixed bottom-[64px] right-5 z-40` (wrapper `pointer-events-none`,
+  con `pointer-events-auto`):
+  1. `ProxyTestFab` (`data-slot="proxy-test-fab"`) — **vòng tiến độ SVG** + `%` ở giữa (không dùng icon xoay),
+     bấm ra popover: số hoạt động / lỗi / còn lại + nút **Dừng kiểm tra**.
+  2. FAB acc đang chạy (`data-slot="run-fab"`, icon `Loader2` + badge đỏ) — giữ nguyên như trước.
+- **State tiến độ phải nằm ở `App`** (`proxyTest`), KHÔNG để trong `ProxyPanel`: đổi tab làm `ProxyPanel`
+  unmount nên state cục bộ sẽ mất, cục tròn biến mất. `ProxyPanel` chỉ nhận props
+  `testProgress / onTestAll / onTestSelected` và vẫn tự subscribe `onTestProgress` để nhảy màu từng dòng.
+- Kiểm chứng (`BRF_TEST_PROXYFAB=1` + `BRF_TAB=proxies`): chụp ảnh lúc đang test ở tab Proxy, bấm sang tab
+  Tài khoản rồi chụp lại — `[proxyfab] FAB sau khi doi tab: {"found":true,...,"title":"Đang kiểm tra proxy 22/251 (9%)"}`.
+
 - **Bảng dùng `colgroup`** (`AccountsTable.tsx`): 12 cột khai báo `<col style={{ width }}>` + `Table className="min-w-[1360px]"`;
   KHÔNG đặt `min-w-*`/`w-*` trên `<TableHead>` nữa — cột không nhảy khi dữ liệu đổi.
   Cột **Tài khoản = 330px** (tên/email/meta `Edge · :9400` đều `truncate` + `whitespace-nowrap`, không xuống dòng);
@@ -235,6 +247,11 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
   + Parser `parseProxy` hỗ trợ mọi định dạng: `host:port`, `host:port:user:pass`, `protocol://user:pass@host:port`.
   + Gắn proxy vào browser: CLI launch thêm `--proxy-server`, nếu có auth thì tự động chứng thực `setHTTPCredentials` qua CDP khi mở trình duyệt; Playwright persistent context tự động nhận `opts.proxy`.
   + Form Thêm/Sửa và Drawer hiển thị nút "Kiểm tra proxy" trực tiếp; bảng tài khoản hiển thị tag proxy `🌐 host:port`.
+- 2026-10-15 (Nâng cấp tính năng Proxy & Chọn nhanh 3 proxy sạch):
+  + Kiểm tra theo lô (Batch concurrency 15): timeout Bing 8s, chỉ gọi ip-api khi Bing OK (giảm thời gian test proxy chết từ 27s xuống 8s). Ghi file đệm định kỳ.
+  + Stream tiến độ kiểm tra realtime qua IPC `proxies:testProgress` -> thanh `Progress` trực quan `{done}/{total}` ({ok} hoạt động, {error} lỗi) kèm nút "Dừng kiểm tra". Bảng cập nhật trạng thái xanh/đỏ thời gian thực từng dòng.
+  + Nút `⚡ Gán nhanh 3 proxy sạch (ping thấp)` trong `AccountDialog` và `ProxyPickerDialog`: tự động quét toàn bộ kho, lọc các proxy chưa từng được tài khoản nào dùng (cả main lẫn fallback), đã test OK, sắp xếp latency tăng dần -> gán proxy 1 làm chính, proxy 2 & 3 làm dự phòng chỉ với 1 click.
+  + Hiển thị rõ ràng trạng thái "được sài chưa": `✓ Chưa tài khoản nào dùng (Sạch)` hoặc `⚠️ Đang dùng bởi {N} tài khoản khác` trong thẻ Proxy chính, danh sách Proxy dự phòng và trong hộp thoại `ProxyPickerDialog`. Tự động đồng bộ URL proxy cũ sang kho proxy.
 - Bẫy: dev server giữ file ⇒ sửa `App.tsx` có thể báo `ReplaceFileW EIO (Win32 32)`; phải tắt Electron
   (`Stop-Process electron`) rồi sửa lại.
 
@@ -259,6 +276,51 @@ Ly do (do that, khong phai loi code):
 - Acc dang nhap bang IP nha (`default`), khi doi sang proxy la -> Bing tra ve `not-signed-in`
   => pass dung som truoc buoc do IP. Muon co bang chung: dang nhap acc qua dung proxy do
   (Mo trinh duyet -> dang nhap) roi chay lai, hoac dung proxy tra phi on dinh.
+
+## Cập nhật point SONG SONG (2026-10-15)
+
+`refreshMany()` trong `src/main/runner.ts` chạy **pool song song** thay vì for-await tuần tự:
+
+- `settings.refreshParallel` (mặc định **3**, chọn trong menu Cài đặt: Tuần tự / 2 / 3 / 4 / 5 / 6 / 8 acc).
+  Mỗi acc là 1 `user-data-dir` + 1 cửa sổ riêng nên song song an toàn; `withProfileLock` chỉ khoá theo từng profile.
+- `settings.refreshGapMs` (mặc định 800ms) giờ chỉ là **độ lệch nhịp khởi động** giữa các worker: worker slot `k`
+  chờ `gapMs × k` trước khi mở trình duyệt ⇒ không mở nhiều cửa sổ cùng 1 giây.
+- Tiến độ đẩy lên UI kèm `parallel` ⇒ nút bấm hiện `Đang cập nhật 3/5 · 3 song song`.
+
+**Bẫy quan trọng đã sửa:** `cache.put()` là read-modify-write trên `cache.json`; khi nhiều acc ghi cùng lúc thì
+lần ghi sau **xoá mất** kết quả của acc trước. `cache.ts` giờ giữ 1 bản trong bộ nhớ + ghi file theo **hàng đợi**
+(`writeChain`) nên không mất dữ liệu.
+
+Đo thật 2026-10-15 09:30 (5 tài khoản, song song 3): 4 acc đầu xong trong **18 giây**
+(09:30:58 / 09:31:00 / 09:31:08 / 09:31:15), acc cuối 09:31:58 (1 lần retry `Execution context was destroyed`
+do trang Bing tự điều hướng). `cache.json` có đủ **5/5** acc với số liệu riêng ⇒ không mất ghi.
+Tuần tự như trước (gap 2s + mở từng trình duyệt) tốn ~90–120 giây cho cùng 5 acc.
+
+## Nút "Đóng trình duyệt" không làm gì (fixed 2026-10-15)
+
+Triệu chứng: bấm **Đóng** mà cửa sổ vẫn mở, UI vẫn báo "Đã đóng trình duyệt".
+
+Nguyên nhân: `closeBrowser()` cũ chỉ chạy `taskkill` khi **có pid trong map `running`**:
+```ts
+const mem = running.get(profileId); if (!mem?.pid) return { ok: false }   // ← thoát luôn
+```
+Map này rỗng sau khi app khởi động lại, và browser do người dùng mở tay cũng chỉ được `browserState()`
+đánh dấu `pid: null`. Cả 2 trường hợp phổ biến nhất đều rơi vào nhánh `return { ok:false }`.
+UI lại bỏ qua kết quả trả về và luôn `toast.info('Đã đóng trình duyệt.')`.
+
+Fix (`src/main/browsers.ts` + `App.tsx`):
+1. Biết pid → `taskkill /PID <pid> /T /F` (như cũ).
+2. Không biết pid → `pidListeningOn(port)`: đọc `netstat -ano -p tcp`, tìm PID đang LISTENING trên cổng CDP
+   của profile rồi `taskkill` cả cây.
+3. Vẫn không thấy → nối CDP (`chromium.connectOverCDP`) và gọi `browser.close()`.
+4. Hết cách → trả `{ok:false, error}`; UI giờ `throw` để hiện `toast.error` thay vì báo thành công giả.
+
+Kiểm chứng thật (`BRF_CLOSETEST=thap-vu`, browser đang mở ở cổng 9401 nhưng map rỗng):
+```
+[closetest] truoc khi dong: thap-vu running=true pid=null port=9401
+[closetest] closeBrowser -> {"ok":true}
+[closetest] cong 9401 con listen: false        → msedge còn lại: 0
+```
 
 ## Loi mang lam chet app (fixed 2026-10-14)
 
