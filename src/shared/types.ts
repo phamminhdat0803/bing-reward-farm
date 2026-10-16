@@ -174,3 +174,54 @@ export type PhoneSnapshot = {
   apps: PhoneApp[]
   error?: string
 }
+
+/** 1 muc trong ngay (daily set link / keep-earning item) */
+export type HistoryItem = { label: string; reward: string | null; visited: boolean }
+
+/** Tong hop 1 nhom task trong 1 ngay */
+export type HistoryTask = {
+  done: number
+  total: number | null
+  pointsBefore: number | null
+  pointsAfter: number | null
+  gained: number | null
+  items: HistoryItem[]
+}
+
+/** 1 luot chay (1 kind trong 1 lan bam Chay) */
+export type HistoryRun = {
+  at: string
+  date: string
+  profileId: string
+  kind: string
+  searches: number | null
+  status: string
+  pointsBefore: number | null
+  pointsAfter: number | null
+  gained: number | null
+  counterBefore: string | null
+  counterAfter: string | null
+}
+
+/** Lich su 1 ngay cua 1 tai khoan */
+export type HistoryDay = {
+  date: string
+  profileId: string
+  name: string
+  account: string
+  desktop: HistoryTask
+  mobile: HistoryTask
+  daily: HistoryTask
+  earn: HistoryTask
+  gained: number | null
+  pointsFirst: number | null
+  pointsLast: number | null
+  runs: HistoryRun[]
+  warnings: string[]
+}
+
+export type HistoryData = {
+  at: string
+  days: HistoryDay[]
+  profiles: { id: string; name: string; account: string }[]
+}

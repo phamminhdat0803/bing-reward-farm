@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  HistoryTask,
   AppSettings,
   DetectedBrowser,
   LogLine,
@@ -185,7 +186,38 @@ const api = {
   refreshPoints: (ids: string[]): Promise<{ ok: boolean; count: number }> =>
     ipcRenderer.invoke('rewards:refresh', ids),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('settings:set', patch),
+  /** Lịch sử chạy đọc từ state/<id>.json: mỗi ngày 1 dòng tổng hợp + danh sách run */
+  listHistory: (opts?: { profileId?: string; days?: number }): Promise<{
+    at: string
+    profiles: { id: string; name: string; account: string }[]
+    days: {
+      date: string
+      profileId: string
+      name: string
+      account: string
+      desktop: HistoryTask
+      mobile: HistoryTask
+      daily: HistoryTask
+      earn: HistoryTask
+      gained: number | null
+      pointsFirst: number | null
+      pointsLast: number | null
+      runs: {
+        at: string
+        date: string
+        profileId: string
+        kind: string
+        searches: number | null
+        status: string
+        pointsBefore: number | null
+        pointsAfter: number | null
+        gained: number | null
+        counterBefore: string | null
+        counterAfter: string | null
+      }[]
+      warnings: string[]
+    }[]
+  }> => ipcRenderer.invoke('history:list', opts ?? {}),  setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('settings:set', patch),
 
   // ---------- Che do tu dong ----------
   /** Trang thai che do tu dong: chu ky, vong da chay, lan chay toi, so lan xu ly proxy */

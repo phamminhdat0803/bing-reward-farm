@@ -19,6 +19,7 @@ import {
   stopRun,
   watchdogQueues
 } from './runner'
+import { listHistory } from './history'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { detectPhoneApps, getPhoneSnapshot } from './phone-apps'
@@ -95,7 +96,8 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     // Ban build khong co query string -> mo tab chi dinh bang cach bam nut nav
     if (process.env.BRF_TAB) {
-      const label = String(process.env.BRF_TAB) === 'phone' ? 'Điện thoại' : String(process.env.BRF_TAB) === 'proxies' ? 'Proxy' : 'Tài khoản'
+      const tabKey = String(process.env.BRF_TAB)
+      const label = tabKey === 'phone' ? 'Điện thoại' : tabKey === 'proxies' ? 'Proxy' : tabKey === 'history' ? 'Lịch sử' : 'Tài khoản'
       mainWindow.webContents.once('did-finish-load', () => {
         setTimeout(() => {
           void mainWindow?.webContents
@@ -496,6 +498,37 @@ if (process.env.BRF_TEST_ALL) {
           }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_HIST_EXPAND=1 -> mo tab Lich su, bam mo 1 dong chi tiet roi chup anh
+  if (process.env.BRF_HIST_EXPAND) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const r = await wc.executeJavaScript(`(async () => {
+            const btnNav = [...document.querySelectorAll('nav button')].find((b) => /Lịch sử/.test(b.textContent || ''))
+            if (btnNav) btnNav.click()
+            await new Promise((res) => setTimeout(res, 2500))
+            const btns = [...document.querySelectorAll('tbody button')].filter((b) => /lượt/.test(b.textContent || ''))
+            if (!btns.length) return { error: 'khong thay nut luot' }
+            btns[0].click()
+            await new Promise((res) => setTimeout(res, 1200))
+            const opened = document.querySelectorAll('tbody tr').length
+            return { mo: true, soDong: opened, text: (document.body.innerText.match(/Các lượt chạy trong ngày[\\s\\S]{0,120}/) || [''])[0].replace(/\\n/g, ' | ').slice(0, 160) }
+          })()`)
+          console.log(`[hist-expand] ${JSON.stringify(r)}`)
+          await new Promise((res) => setTimeout(res, 1200))
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const file = join(dir, `shot-history-detail-${Date.now()}.png`)
+          writeFileSync(file, img.toPNG())
+          console.log(`[hist-expand] anh: ${file}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
     })
   }
 
@@ -1288,6 +1321,9 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     return out
   })
   ipcMain.handle('auto:pickClean', (_e, n?: number) => pickCleanProxies(n ?? 3))
+
+  // ---------- IPC: LICH SU (doc state/<id>.json) ----------
+  ipcMain.handle('history:list', (_e, opts?: { profileId?: string; days?: number }) => listHistory(opts ?? {}))
 
   // ---------- IPC: dien thoai (adb) ----------
   ipcMain.handle('phone:list', async (_e, force?: boolean) => (force ? detectPhoneApps() : getPhoneSnapshot()))

@@ -14,6 +14,7 @@ import { BrowsersDialog } from '@renderer/components/BrowsersDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
 import { ProxyPanel } from '@renderer/components/ProxyPanel'
 import { PhonePanel } from '@renderer/components/PhonePanel'
+import { HistoryPanel } from '@renderer/components/HistoryPanel'
 
 import { ProxyTestFab, type ProxyTestState } from '@renderer/components/ProxyTestFab'
 import { LogDock } from '@renderer/components/LogDock'
@@ -46,10 +47,10 @@ export default function App(): React.JSX.Element {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
   const [browserCount, setBrowserCount] = useState(0)
-  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone'>(
+  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone' | 'history'>(
     () => {
       const t = new URLSearchParams(location.search).get('tab')
-      return t === 'proxies' ? 'proxies' : t === 'phone' ? 'phone' : 'accounts'
+      return t === 'proxies' ? 'proxies' : t === 'phone' ? 'phone' : t === 'history' ? 'history' : 'accounts'
     }
   )
   const [phoneAppCount, setPhoneAppCount] = useState(0)
@@ -417,7 +418,7 @@ export default function App(): React.JSX.Element {
                 { id: 'settings', label: 'Cài đặt' }
               ] as const
             ).map((t) =>
-              t.id === 'accounts' || t.id === 'proxies' || t.id === 'phone' ? (
+              t.id === 'accounts' || t.id === 'proxies' || t.id === 'phone' || t.id === 'history' ? (
                 <button
                   key={t.id}
                   type="button"
@@ -665,6 +666,8 @@ export default function App(): React.JSX.Element {
           </>
         ) : tab === 'phone' ? (
           <PhonePanel rows={rows} />
+        ) : tab === 'history' ? (
+          <HistoryPanel />
         ) : (
           <ProxyPanel
             rows={rows}
