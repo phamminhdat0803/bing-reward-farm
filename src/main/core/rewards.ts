@@ -1,15 +1,59 @@
 // Doc diem / tien do tu Microsoft Rewards.
 // BAI HOC (2026-10-13, VN):
-//  - /api/getuserinfo... tra 401 KE CA khi da dang nhap => khong dung API.
+//  - Điểm/progress vẫn đọc DOM. getuserinfo có thể 401; chỉ dùng API để đọc serpbotscore, lỗi không làm hỏng snapshot.
 //  - Trang thai dang nhap xac dinh bang cookie: _C_Auth, MSPAuth, MSPProf, WLSSC, .MSA.Auth
 //  - Tran ngay nam trong drawer "Points breakdown" tren /earn (khong co API, phai click + doc DOM).
 import type { BrowserContext, Page } from 'playwright-core'
 import { sleep } from './logger'
 import type { Logger, Progress } from './types'
+import { parseDailyStreak, parseReadyToClaim, parseSerpBotScore } from './rewards-summary'
+import type { SerpBotScore } from '../../shared/types'
 
 export const REWARDS_URL = 'https://rewards.bing.com/'
 export const DASHBOARD_URL = 'https://rewards.bing.com/dashboard'
 export const EARN_URL = 'https://rewards.bing.com/earn'
+export const USERINFO_URL = 'https://rewards.bing.com/api/getuserinfo'
+
+/** Mở GET trong cùng phiên đăng nhập; không lưu JSON chứa thông tin cá nhân. */
+export async function readSerpBotScore(context: BrowserContext, log?: Logger): Promise<SerpBotScore> {
+  const result: SerpBotScore = { value: null, updatedAt: null, checkedAt: new Date().toISOString() }
+  let page: Page | undefined
+  try {
+    page = await context.newPage()
+    const response = await page.goto(USERINFO_URL, { waitUntil: 'domcontentloaded', timeout: 12000 })
+    if (!response?.ok()) throw new Error(`API trả HTTP ${response?.status() ?? 'không có phản hồi'}`)
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      // Cốc Cốc trả HTML bọc ngoài nhưng body vẫn là JSON (đã kiểm chứng trực tiếp).
+      try {
+        await page.waitForFunction(() => {
+          try {
+            return JSON.parse(document.body?.innerText || '') !== null
+          } catch {
+            return false
+          }
+        }, undefined, { timeout: 2500 })
+        payload = JSON.parse(await page.locator('body').innerText({ timeout: 2000 }))
+      } catch {
+        throw new Error('API không trả JSON (có thể phiên đăng nhập đã hết hạn)')
+      }
+    }
+    const score = parseSerpBotScore(payload)
+    if (!score) throw new Error('JSON thiếu serpbotscore hợp lệ trong khoảng 0–1')
+    Object.assign(result, score)
+    log?.info(`serpbotscore=${score.value} sourceUpdatedAt=${score.updatedAt ?? 'n/a'}`)
+  } catch (error) {
+    result.error = error instanceof Error && /^(API |JSON )/.test(error.message)
+      ? error.message
+      : 'Không truy cập được API getuserinfo trong phiên này'
+    log?.warn(`serpbotscore: ${result.error}`)
+  } finally {
+    await page?.close().catch(() => {})
+  }
+  return result
+}
 
 const AUTH_COOKIES = ['_C_Auth', 'MSPAuth', 'MSPProf', 'WLSSC', 'RPSSecAuth', 'JWT-Session', '.MSA.Auth', 'SUID']
 
@@ -66,6 +110,7 @@ export type Breakdown = {
   lifetime: number | null
   /** Muc "Keep earning x/y" tren /earn (the daily offer) */
   earn: Progress
+  dailyStreak: number | null
 }
 
 /** Parser thuan tuy cho drawer "Points breakdown". */
@@ -101,7 +146,8 @@ export function parseBreakdownText(text: string): Breakdown {
     month: one('This month'),
     year: one('This year'),
     lifetime: one('Lifetime'),
-    earn: pair('Keep earning')
+    earn: pair('Keep earning'),
+    dailyStreak: parseDailyStreak(text)
   }
 }
 
@@ -151,6 +197,7 @@ export type CountersSnapshot = {
   points: number | null
   todayPoints: number | null
   level: string | null
+  readyToClaim: number | null
   counters: {
     pc: Progress
     search: Progress
@@ -196,6 +243,7 @@ export async function readCounters(
     points: parsed.points,
     todayPoints: parsed.todayPoints,
     level: parsed.level,
+    readyToClaim: parsed.points !== null ? parseReadyToClaim(dom.text) : null,
     counters: {
       pc: parsed.search,
       search: parsed.search,
@@ -245,8 +293,12 @@ export async function readBreakdown(page: Page, log?: Logger): Promise<Breakdown
 
   const parsed: Breakdown = text
     ? parseBreakdownText(text)
-    : { todayPoints: null, desktop: null, mobile: null, offers: null, month: null, year: null, lifetime: null, earn: null }
+    : { todayPoints: null, desktop: null, mobile: null, offers: null, month: null, year: null, lifetime: null, earn: null, dailyStreak: null }
   if (parsed.todayPoints === null) parsed.todayPoints = fallbackToday
+
+  // Daily streak thuộc phần đầu trang Earn, khác Search: x/y và Daily Set Streak.
+  const earnText = await page.locator('body').innerText().catch(() => '')
+  parsed.dailyStreak = parseDailyStreak(earnText)
 
   // "Keep earning x/y" nam tren than trang /earn (khong nam trong drawer)
   if (!parsed.earn) {

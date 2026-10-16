@@ -14,7 +14,8 @@ import {
   X,
   Clock,
   Loader2,
-  MonitorCog
+  MonitorCog,
+  UserRound
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import type { RowState } from '@shared/types'
@@ -39,6 +40,8 @@ import {
 import { Progress } from '@renderer/components/ui/progress'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import { fmtNum, pct, timeAgo } from '@renderer/lib/utils'
+import { RewardMetric } from './RewardsSummary'
+import { BotScoreBadge } from './BotScore'
 
 type Props = {
   rows: RowState[]
@@ -67,32 +70,28 @@ type Props = {
 }
 
 function MiniBar({
+  label,
   progress,
   max,
   noData = false
 }: {
+  label: string
   progress?: number | null
   max?: number | null
   noData?: boolean
 }): React.JSX.Element {
-  if (noData || (progress == null && max == null)) {
-    return <span className="text-[var(--stone)] text-[13px]">—</span>
-  }
-  if (max === 0) {
-    return <span className="text-[var(--stone)] text-[12px]">0/0 (chưa mở)</span>
-  }
-  if (max == null || max <= 0) {
-    return <span className="text-[var(--stone)] text-[13px]">—</span>
-  }
+  const available = !noData && max != null && max > 0
   const prog = progress ?? 0
-  const p = pct(prog, max)
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span className="mm-tabular w-[46px] text-[12.5px]">
-        {prog}
-        <span className="text-[var(--stone)]">/{max}</span>
-      </span>
-      <Progress value={p} className="h-1.5 w-[72px]" />
+    <div className="min-h-7 min-w-0" title={max === 0 ? `${label}: 0/0 (chưa mở)` : undefined}>
+      <div className="flex min-w-0 items-center justify-between gap-1 text-[12px] leading-4">
+        <span className="truncate text-[var(--steel)]">{label}</span>
+        <span className="mm-tabular shrink-0">
+          {available ? <>{prog}<span className="text-[var(--stone)]">/{max}</span></> :
+            <span className="text-[var(--stone)]">{!noData && max === 0 ? 'Chưa mở' : '—'}</span>}
+        </span>
+      </div>
+      {available ? <Progress value={pct(prog, max)} className="mt-1 h-1 w-full" /> : null}
     </div>
   )
 }
@@ -210,23 +209,18 @@ export function AccountsTable(p: Props): React.JSX.Element {
   const allChecked = p.rows.length > 0 && p.selectedIds.length === p.rows.length
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
-      <Table className="w-full min-w-[1470px] table-fixed">
-        {/* colgroup: định hình độ rộng từng cột, bảng không nhảy cột khi dữ liệu đổi */}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
+      <Table className="w-full table-fixed" horizontalScroll={false} data-slot="accounts-table">
+        {/* Tổng 100%: mọi nhóm co giãn cùng cửa sổ, không cần cuộn ngang. */}
         <colgroup>
-          <col style={{ width: 40 }} />
-          <col style={{ width: 260 }} />
-          <col style={{ width: 170 }} />
-          <col style={{ width: 80 }} />
-          <col style={{ width: 75 }} />
-          <col style={{ width: 150 }} />
-          <col style={{ width: 110 }} />
-          <col style={{ width: 110 }} />
-          <col style={{ width: 65 }} />
-          <col style={{ width: 110 }} />
-          <col style={{ width: 85 }} />
-          <col style={{ width: 95 }} />
-          <col style={{ width: 120 }} />
+          <col style={{ width: '3%' }} />
+          <col style={{ width: '25%' }} />
+          <col style={{ width: '11%' }} />
+          <col style={{ width: '15%' }} />
+          <col style={{ width: '17%' }} />
+          <col style={{ width: '9%' }} />
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
         </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-[var(--surface)]">
@@ -234,25 +228,18 @@ export function AccountsTable(p: Props): React.JSX.Element {
               <Checkbox checked={allChecked} onCheckedChange={p.onToggleAll} aria-label="Chọn tất cả" />
             </TableHead>
             <TableHead>Tài khoản</TableHead>
-            <TableHead>Trạng thái</TableHead>
             <TableHead className="text-right">Điểm</TableHead>
-            <TableHead className="text-right">Hôm nay</TableHead>
-            <TableHead>Search desktop</TableHead>
-            <TableHead>Search mobile</TableHead>
-            <TableHead title="Mục Keep earning trên trang /earn — tài khoản không có mục này sẽ hiện “không có”">
-              Keep earning
-            </TableHead>
-            <TableHead className="text-right">Offers</TableHead>
-            <TableHead>Daily set</TableHead>
-            <TableHead className="text-center">Search đã chạy</TableHead>
-            <TableHead className="text-center">Cập nhật</TableHead>
-            <TableHead className="text-right pr-4">Thao tác</TableHead>
+            <TableHead>Tìm kiếm</TableHead>
+            <TableHead>Hoạt động</TableHead>
+            <TableHead title="Số ngày liên tiếp, đọc từ trang Earn">Daily streak</TableHead>
+            <TableHead title="Giá trị phần thưởng chờ nhận trên Dashboard">Ready to claim</TableHead>
+            <TableHead className="text-right">Thao tác</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {p.rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={13} className="py-12 text-center text-[var(--steel)]">
+              <TableCell colSpan={8} className="py-12 text-center text-[var(--steel)]">
                 Chưa có tài khoản nào — bấm “Thêm tài khoản”.
               </TableCell>
             </TableRow>
@@ -296,9 +283,21 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-[13.5px] leading-tight" title={row.profile.name}>
+                    <div data-slot="account-identity" className="flex min-w-0 items-start gap-2">
+                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-[var(--hairline)] bg-[var(--surface)] text-[var(--steel)]" aria-hidden="true">
+                        <UserRound className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                      <span className="block truncate font-medium text-[13.5px] leading-tight" title={row.profile.name}>
                         {row.profile.name}
+                      </span>
+                    <div className="mm-micro truncate" title={row.profile.account || row.profile.id}>
+                      {row.profile.account || row.profile.id}
+                    </div>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="mm-micro shrink-0 whitespace-nowrap">
+                        {row.profile.channel === 'coccoc' ? 'Cốc Cốc' : row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}
+                        {row.profile.cdpPort ? ` :${row.profile.cdpPort}` : ''}
                       </span>
                       {row.profile.proxyId || row.profile.proxy ? (
                         (() => {
@@ -318,84 +317,62 @@ export function AccountsTable(p: Props): React.JSX.Element {
                             : 'chua do suc khoe proxy'
                           return (
                             <span
-                              className="flex max-w-[130px] shrink-0 items-center gap-1 truncate rounded bg-[var(--surface-soft)] px-1 text-[11px] font-medium text-[var(--brand-blue-deep)]"
+                              className="flex min-w-0 items-center gap-1 text-[11px] font-medium text-[var(--brand-blue-deep)]"
                               title={`proxy: ${row.profile.proxyId ? (p.proxyLabels?.[row.profile.proxyId] ?? row.profile.proxyId) : (row.profile.proxy ?? '')}\n${detail}`}
                             >
                               <span className={`size-1.5 shrink-0 rounded-full ${color}`} />
-                              {row.profile.proxyId
+                              <span className="truncate">{row.profile.proxyId
                                 ? (p.proxyLabels?.[row.profile.proxyId] ?? 'proxy đã xoá')
-                                : cleanProxyDisplay(row.profile.proxy ?? '')}
+                                : cleanProxyDisplay(row.profile.proxy ?? '')}</span>
                             </span>
                           )
                         })()
                       ) : null}
                     </div>
-                    <div
-                      className="mm-micro truncate"
-                      title={`${row.profile.account || row.profile.id} · ${row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}${row.profile.cdpPort ? ` :${row.profile.cdpPort}` : ''}`}
-                    >
-                      {row.profile.account || row.profile.id}
-                      <span className="text-[var(--stone)]">
-                        {' · '}
-                        {row.profile.channel === 'chrome' ? 'Chrome' : 'Edge'}
-                        {row.profile.cdpPort ? ` :${row.profile.cdpPort}` : ''}
-                      </span>
+                    <div className="flex min-h-6 flex-wrap items-center gap-1.5">
+                      <StatusCell row={row} />
+                      <BotScoreBadge data={c?.serpBotScore} />
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    <StatusCell row={row} />
+                    </div>
+                    </div>
                   </TableCell>
                   <TableCell className="mm-tabular text-right text-[15px] font-semibold">
                     {hasData ? fmtNum(c?.points) : '—'}
+                    <div className="mt-1 whitespace-nowrap text-[12px] font-medium text-[var(--success-text)]">
+                      {hasData ? `+${fmtNum(c?.todayPoints ?? 0)}` : '—'} <span className="font-normal text-[var(--steel)]">hôm nay</span>
+                    </div>
                     {c?.level ? <div className="mm-micro">{c.level}</div> : null}
                   </TableCell>
-                  <TableCell className="mm-tabular text-right">
-                    <span className="font-semibold text-[var(--success-text)]">
-                      {hasData ? fmtNum(c?.todayPoints ?? 0) : '—'}
-                    </span>
+                  <TableCell>
+                    <div className="space-y-1">
+                      <MiniBar label="Desktop" progress={dProg} max={dMax} noData={!hasData && dMax == null} />
+                      <MiniBar label="Mobile" progress={mProg} max={mMax} noData={!hasData && mMax == null} />
+                    </div>
+                    <div className="mm-micro mm-tabular mt-1">{hasData ? `${searches} lượt đã chạy` : 'Chưa có dữ liệu'}</div>
                   </TableCell>
                   <TableCell>
-                    <MiniBar progress={dProg} max={dMax} noData={!hasData && dMax == null} />
+                    <div className="space-y-1">
+                      <MiniBar label="Daily set" progress={dailyProg} max={dailyMax} noData={!hasData} />
+                      <MiniBar label="Keep earning" progress={c?.earn?.progress} max={c?.earn?.max} noData={!hasData || !c?.earn} />
+                    </div>
+                    <div className="mm-micro mm-tabular mt-1 flex min-w-0 items-center gap-1.5">
+                      <span>Offers: {hasData ? fmtNum(c?.offers) : '—'}</span>
+                      {c?.earn?.blockedPoints ? (
+                        <span
+                          className="truncate text-[var(--error)]"
+                          title={(c.earn.blocked ?? []).map(b => `${b.label}: ${b.reason}`).join('\n')}
+                        >· Khoá {c.earn.blockedPoints}đ</span>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>
-                    <MiniBar progress={mProg} max={mMax} noData={!hasData && mMax == null} />
+                    <RewardMetric value={c?.dailyStreak} kind="streak" />
                   </TableCell>
                   <TableCell>
-                    {!hasData ? (
-                      <span className="text-[13px] text-[var(--stone)]">—</span>
-                    ) : c?.earn ? (
-                      <div className="flex min-w-0 items-center gap-1.5">
-                  <MiniBar progress={c.earn.progress} max={c.earn.max} />
-                  {c.earn.blockedPoints ? (
-                    <span
-                      className="shrink-0 whitespace-nowrap rounded bg-[var(--error)]/10 px-1 text-[10.5px] font-semibold text-[var(--error)]"
-                      title={
-                        'Không kiếm được ' +
-                        c.earn.blockedPoints +
-                        ' điểm vì thẻ bị khoá cấp độ:\n' +
-                        (c.earn.blocked ?? [])
-                          .map((b) => `• ${b.label}${b.points ? ` (+${b.points})` : ''} — ${b.reason}`)
-                          .join('\n')
-                      }
-                    >
-                      -{c.earn.blockedPoints}đ
-                    </span>
-                  ) : null}
-                </div>
-                    ) : (
-                      <span className="text-[12px] text-[var(--stone)]">không có</span>
-                    )}
+                    <RewardMetric value={c?.readyToClaim} kind="claim" />
                   </TableCell>
-                  <TableCell className="mm-tabular text-right">{hasData ? fmtNum(c?.offers) : '—'}</TableCell>
-                  <TableCell>
-                    <MiniBar progress={dailyProg} max={dailyMax} noData={!hasData} />
-                  </TableCell>
-                  <TableCell className="mm-tabular text-center">{hasData ? searches : '—'}</TableCell>
-                  <TableCell className="whitespace-nowrap text-center text-[12.5px] text-[var(--steel)]">
-                    {hasData ? timeAgo(c?.cachedAt) : '—'}
-                  </TableCell>
-                  <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end items-center gap-1.5">
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1">
                       <Button
                         size="icon-sm"
                         variant="tertiary"
@@ -468,6 +445,9 @@ export function AccountsTable(p: Props): React.JSX.Element {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}
+                    </div>
+                    <div className="mm-micro mt-2 truncate" title={c?.cachedAt ? `Cập nhật ${new Date(c.cachedAt).toLocaleString('vi-VN')}` : 'Chưa cập nhật'}>
+                      {hasData ? timeAgo(c?.cachedAt) : 'Chưa cập nhật'}
                     </div>
                   </TableCell>
                     </TableRow>
@@ -556,7 +536,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
       </Table>
 
       {/* Dòng trạng thái đáy bảng: luôn thấy tổng quan dù bảng dài */}
-      <div className="flex shrink-0 items-center justify-between border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
         <span>
           {p.rows.length} tài khoản · {p.rows.filter((r) => r.browser.running).length} trình duyệt mở ·{' '}
           {p.rows.filter((r) => r.run.running).length} đang chạy

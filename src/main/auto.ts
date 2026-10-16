@@ -10,10 +10,12 @@ import path from 'node:path'
 import { app } from 'electron'
 import { get } from './cache'
 import { loadStore, updateProfile } from './profiles'
-import { getSettings, setSettings } from './settings'
+import { AUTO_INTERVALS, getSettings, setSettings } from './settings'
 import { listProxies, preflightChain, resolveProxyChain, testAll } from './proxies'
 import { runState, startRun } from './runner'
 import type { Profile } from '../shared/types'
+import { getPolicy, pausePolicy, policyPlan } from './policy-service'
+import { accountPolicy, dayKey } from '../shared/policy-engine'
 
 /**
  * Task auto quan ly — TRUNG DUNG voi kind ma runner hieu (`kinds.includes('desktop'|'mobile'|'daily'|'earn')`).
@@ -61,10 +63,11 @@ let state: AutoState = {
   profiles: {}
 }
 let timer: NodeJS.Timeout | null = null
+let stopRequested = false
 let onEvent: ((msg: string) => void) | null = null
 let onChanged: (() => void) | null = null
 
-const todayKey = (): string => new Date().toISOString().slice(0, 10)
+const todayKey = dayKey
 const FILE = (): string => path.join(app.getPath('userData'), 'auto-state.json')
 const ESC_DIR = (): string => path.join(app.getPath('userData'), 'escalations')
 
@@ -105,6 +108,8 @@ export function autoStatus(): AutoState & { everyMs: number; enabled: boolean } 
 
 /** Task con thieu cua 1 acc theo so lieu da luu (khong mo trinh duyet). */
 export function pendingTasks(profile: Profile): AutoTask[] {
+  const plan = policyPlan(profile)
+  if (plan.active) return plan.tasks
   const c = get(profile.id)
   if (!c) return ['desktop', 'mobile', 'daily']
   const out: AutoTask[] = []
@@ -114,7 +119,7 @@ export function pendingTasks(profile: Profile): AutoTask[] {
   // MOBILE: chi xep lich khi acc THUC SU co diem mobile (max > 0 doc tu snapshot).
   // BUG 2026-10-16 (tu 4 ho so leo thang sai): acc Level 1 / Taiwan co mobile max = 0 nhung truoc day
   // van lay `profile.mobileMax ?? 60` -> chay 3 lan vo ich roi ghi ho so "khong len diem".
-  const mMax = c.mobile?.max ?? 0
+  const mMax = Math.min(profile.mobileMax ?? c.mobile?.max ?? 0, c.mobile?.max ?? 0)
   if (mMax > 0 && (c.mobile?.progress ?? 0) < mMax) out.push('mobile')
 
   if ((c.dailySet?.progress ?? 0) < (c.dailySet?.max ?? 3)) out.push('daily')
@@ -145,25 +150,36 @@ export function normalizeTask(t: string): AutoTask | null {
 
 /** Chon 3 proxy sach: da test OK, ping thap, chua bi acc khac dung. */
 export function pickCleanProxies(count = 3): { id: string; label: string; latency: number | null }[] {
+  if (!Number.isSafeInteger(count) || count < 1 || count > 20) throw new Error('Số proxy phải từ 1 đến 20')
   const st = loadStore()
+  const proxies = listProxies()
+  const byId = new Map(proxies.map(proxy => [proxy.id, proxy]))
   const used = new Set<string>()
   for (const p of st.profiles) {
-    if (p.proxyId) used.add(p.proxyId)
-    for (const f of p.proxyFallbacks ?? []) used.add(f)
+    if (p.proxyId && byId.has(p.proxyId)) used.add(byId.get(p.proxyId)!.url)
+    if (p.proxy) used.add(p.proxy)
+    for (const f of p.proxyFallbacks ?? []) used.add(byId.get(f)?.url ?? f)
   }
-  return listProxies()
-    .filter((p) => p.lastTest?.ok && !used.has(p.id))
+  const seen = new Set<string>()
+  return proxies
+    .filter((p) => p.lastTest?.ok && !used.has(p.url))
     .sort((a, b) => (a.lastTest?.latency ?? 99999) - (b.lastTest?.latency ?? 99999))
+    .filter(p => { if (seen.has(p.url)) return false; seen.add(p.url); return true })
     .slice(0, count)
     .map((p) => ({ id: p.id, label: p.label, latency: p.lastTest?.latency ?? null }))
 }
 
 /** Kiem tra toan bo proxy roi gan lai 3 proxy sach cho acc. */
 async function remediateProxies(profile: Profile): Promise<{ ok: boolean; detail: string }> {
+  const config = getPolicy(), rule = accountPolicy(config, profile.id)
+  if (config.enabled && rule.proxyRecovery === 'pause') {
+    pausePolicy(profile, 'Proxy lỗi — tạm dừng theo cấu hình, không tự gán lại')
+    return { ok: false, detail: 'tạm dừng theo quy tắc proxy' }
+  }
   state.remediations += 1
   log(`${profile.name}: proxy loi -> kiem tra toan bo kho proxy`)
   await testAll(15)
-  const clean = pickCleanProxies(3)
+  const clean = pickCleanProxies(config.enabled ? rule.proxyCount : 3)
   if (!clean.length) {
     // Het proxy sach -> day la viec CAN NGUOI HO TRO (them proxy), ghi ho so rieng
     const alive = listProxies().filter((p) => p.lastTest?.ok).length
@@ -201,7 +217,7 @@ async function remediateProxies(profile: Profile): Promise<{ ok: boolean; detail
   }
   updateProfile(profile.id, {
     proxyId: clean[0].id,
-    proxyFallbacks: clean.slice(1).map((c) => c.id)
+    proxyFallbacks: clean.slice(1).map((c) => listProxies().find(p => p.id === c.id)!.url)
   })
   const detail = clean.map((c) => `${c.label}${c.latency != null ? ` (${c.latency}ms)` : ''}`).join(', ')
   log(`${profile.name}: da gan lai proxy sach: ${detail}`)
@@ -287,16 +303,20 @@ export function listEscalations(): { file: string; profile: string; task: string
 /** Chay 1 vong cho TAT CA acc: xu ly proxy neu can, chay task con thieu, dem retry, ghi escalation. */
 export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: number; detail: string[] }> {
   if (state.running) return { cycles: state.cycles, detail: ['dang chay, bo qua vong nay'] }
+  stopRequested = false
   if (state.date !== todayKey()) loadState()
   state.running = true
   const detail: string[] = []
   try {
     const profiles = loadStore().profiles
     log(`vong ${state.cycles + 1} (${reason}) — ${profiles.length} acc`)
-    for (const profile of profiles) {
+    for (let profile of profiles) {
+      if (stopRequested) { detail.push('Đã dừng lịch; không bắt đầu tài khoản tiếp theo'); break }
+      const busy = runState(profile.id)
+      if (busy.running || busy.queued) { detail.push(`${profile.name}: đang chạy/chờ, không xếp thêm`); continue }
       const pend = pendingTasks(profile)
       if (!pend.length) {
-        detail.push(`${profile.name}: đủ điểm`)
+        detail.push(`${profile.name}: ${getPolicy().enabled ? policyPlan(profile).reason : 'đủ điểm'}`)
         continue
       }
       // --- proxy: kiem tra chain, remediate neu chet het ---
@@ -309,6 +329,7 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
           if (!fix.ok) continue
           const fresh = loadStore().profiles.find((p) => p.id === profile.id) ?? profile
           chain = resolveProxyChain(fresh)
+          profile = fresh
         }
       }
       // --- chay ---
@@ -358,8 +379,13 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
       }
       // cho run xong (startRun tra ve ngay khi bat dau)
       const t0 = Date.now()
-      while (runState(profile.id).running && Date.now() - t0 < 20 * 60 * 1000) {
+      while (runState(profile.id).running && !stopRequested && Date.now() - t0 < 20 * 60 * 1000) {
         await new Promise((r) => setTimeout(r, 3000))
+      }
+      if (stopRequested) break
+      if (getPolicy().enabled) {
+        detail.push(`${profile.name}: ${policyPlan(profile).reason}`)
+        continue
       }
       // diem bao cao tre 1-2 phut -> cho them roi doc lai
       await new Promise((r) => setTimeout(r, 90_000))
@@ -450,13 +476,20 @@ export function startAutoLoop(): void {
 
 /** Bat/tat hoac doi chu ky tu UI. */
 export function setAutoEvery(everyMs: number): AutoState & { everyMs: number; enabled: boolean } {
+  if (!(AUTO_INTERVALS as readonly number[]).includes(everyMs)) throw new Error('Chu kỳ tự động không hợp lệ')
+  if (everyMs === 0) stopRequested = true
   setSettings({ autoEveryMs: everyMs })
   startAutoLoop()
   return autoStatus()
 }
 
 export function stopAutoNow(): void {
+  stopRequested = true
   if (timer) clearInterval(timer)
   timer = null
+  setSettings({ autoEveryMs: 0 })
+  state.nextAt = null
+  saveState()
+  onChanged?.()
   log('đã dừng hẹn giờ tự động')
 }

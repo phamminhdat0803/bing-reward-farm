@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, ChevronDown, ChevronUp, Plus, Trash2, Wifi, Zap } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, Plus, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -15,6 +15,8 @@ import { Label } from '@renderer/components/ui/label'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { ProxyPickerDialog } from '@renderer/components/ProxyPickerDialog'
 import { Badge } from '@renderer/components/ui/badge'
+import { QuickProxyFill } from './QuickProxyFill'
+import { parseProxyCount, selectQuickProxies } from '@renderer/lib/proxy-quick-fill'
 import type { DetectedBrowser, Profile, ProxyItem, ProxyTestResult, RowState } from '@shared/types'
 
 const FALLBACK: DetectedBrowser[] = [
@@ -65,6 +67,7 @@ export function AccountDialog({
   const [pickerMode, setPickerMode] = useState<'main' | 'fallback'>('main')
   /** Proxy du phong theo thu tu (sau proxy chinh) */
   const [proxyFallbacks, setProxyFallbacks] = useState<string[]>([])
+  const [quickFillCount, setQuickFillCount] = useState('3')
   const [testingProxy, setTestingProxy] = useState(false)
   const [proxyResult, setProxyResult] = useState<ProxyTestResult | null>(null)
   const [browsers, setBrowsers] = useState<DetectedBrowser[]>([])
@@ -146,52 +149,22 @@ export function AccountDialog({
       .map((r) => r.profile.name)
   }, [selectedProxy, rows, initial])
 
-  const handleQuickFill3CleanProxies = (): void => {
+  const handleQuickFillCleanProxies = (): boolean => {
+    const count = parseProxyCount(quickFillCount)
+    if (count === null) {
+      toast.error('Số proxy phải là số nguyên từ 1 trở lên.')
+      return false
+    }
     if (!proxyList.length) {
       toast.error('Kho proxy đang trống! Hãy thêm proxy ở tab "Proxy" trước.')
-      return
+      return false
     }
 
-    // Tập hợp tất cả proxy URL đang được bất kỳ tài khoản nào khác sử dụng (cả main và fallback)
-    const usedUrls = new Set<string>()
-    for (const r of rows) {
-      if (initial && r.id === initial.id) continue
-      if (r.profile.proxyId) {
-        const item = proxyList.find((x) => x.id === r.profile.proxyId)
-        if (item) usedUrls.add(item.url)
-      }
-      if (r.profile.proxy) usedUrls.add(r.profile.proxy)
-      for (const fb of r.profile.proxyFallbacks ?? []) {
-        if (fb) usedUrls.add(fb)
-      }
-    }
-
-    // 1. Lọc proxy hoàn toàn chưa acc nào dùng
-    const freeList = proxyList.filter((p) => !usedUrls.has(p.url))
-
-    if (!freeList.length) {
-      toast.error('Không còn proxy nào chưa sử dụng trong kho!')
-      return
-    }
-
-    // 2. Ưu tiên proxy đã test OK, sắp xếp theo ping thấp nhất
-    const liveFree = freeList
-      .filter((p) => p.lastTest?.ok && p.lastTest.latency != null)
-      .sort((a, b) => a.lastTest!.latency! - b.lastTest!.latency!)
-
-    let picks: ProxyItem[] = []
-    if (liveFree.length >= 3) {
-      picks = liveFree.slice(0, 3)
-    } else {
-      // Nếu không đủ 3 proxy đã test OK, lấy hết liveFree rồi bù thêm proxy sạch chưa test
-      picks = [...liveFree]
-      const remainingFree = freeList.filter((p) => !picks.some((x) => x.id === p.id))
-      picks.push(...remainingFree.slice(0, 3 - picks.length))
-    }
+    const picks = selectQuickProxies(proxyList, rows, initial?.id, count)
 
     if (!picks.length) {
-      toast.error('Không tìm thấy proxy phù hợp!')
-      return
+      toast.error('Không còn proxy chưa gắn tài khoản khác và không bị lỗi. Hãy thêm hoặc kiểm tra lại proxy.')
+      return false
     }
 
     // Gán:
@@ -199,7 +172,7 @@ export function AccountDialog({
     setProxyId(picks[0].id)
     setProxyResult(picks[0].lastTest ?? null)
 
-    // Proxy 1 & 2 -> làm Proxy dự phòng
+    // Số còn lại làm dự phòng; chọn 1 thì xoá toàn bộ dự phòng cũ.
     const fallbacks = picks.slice(1).map((p) => p.url)
     setProxyFallbacks(fallbacks)
 
@@ -208,9 +181,13 @@ export function AccountDialog({
       .slice(1)
       .map((p) => `${p.label}${p.lastTest?.latency ? ` (${p.lastTest.latency}ms)` : ''}`)
       .join(', ')
-    toast.success(`Đã gán nhanh ${picks.length} proxy sạch (latency thấp)!`, {
-      description: `Chính: ${picks[0].label}${mainLat}${fbInfo ? ` • Dự phòng: ${fbInfo}` : ''}`
+    const untested = picks.filter(item => !item.lastTest).length
+    toast[picks.length < count ? 'warning' : 'success'](picks.length < count
+      ? `Chỉ gán được ${picks.length}/${count} proxy phù hợp trong kho.`
+      : `Đã gán nhanh ${picks.length} proxy.`, {
+      description: `Chính: ${picks[0].label}${mainLat}${fbInfo ? ` • Dự phòng: ${fbInfo}` : ''}${untested ? ` • ${untested} proxy chưa test` : ''}`
     })
+    return true
   }
 
   const handleTestProxy = async (): Promise<void> => {
@@ -460,18 +437,8 @@ export function AccountDialog({
                 <div className="grid gap-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Label className="text-[13px] font-semibold">Proxy & Dự phòng</Label>
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="h-6.5 gap-1.5 px-2.5 text-[11.5px] font-medium text-[var(--brand-blue-deep)] hover:bg-[var(--brand-blue-deep)]/10"
-                        onClick={handleQuickFill3CleanProxies}
-                        title="Tự động tìm 3 proxy trong kho chưa từng được tài khoản nào sử dụng, có độ trễ (ping) thấp nhất đã test OK"
-                      >
-                        <Zap className="size-3 fill-amber-500 text-amber-500" />
-                        ⚡ Gán nhanh 3 proxy sạch (ping thấp)
-                      </Button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <QuickProxyFill value={quickFillCount} onValueChange={setQuickFillCount} onFill={handleQuickFillCleanProxies} />
                       {selectedProxy ? (
                         <Button
                           type="button"
@@ -799,7 +766,9 @@ export function AccountDialog({
           setProxyResult(item?.lastTest ?? null)
           toast.success(id ? `Đã chọn proxy chính: ${item?.label ?? id}` : 'Đã chuyển sang không dùng proxy')
         }}
-        onQuickFill3={handleQuickFill3CleanProxies}
+        quickFillCount={quickFillCount}
+        onQuickFillCountChange={setQuickFillCount}
+        onQuickFill={handleQuickFillCleanProxies}
       />
 
     </Dialog>

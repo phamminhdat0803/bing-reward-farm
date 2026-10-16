@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@renderer/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/components/ui/dropdown-menu'
 import { Switch } from '@renderer/components/ui/switch'
 import { AppToolbar } from '@renderer/components/AppToolbar'
 import { AccountsTable } from '@renderer/components/AccountsTable'
@@ -15,6 +15,7 @@ import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/Confirm
 import { ProxyPanel } from '@renderer/components/ProxyPanel'
 import { PhonePanel } from '@renderer/components/PhonePanel'
 import { HistoryPanel } from '@renderer/components/HistoryPanel'
+import { SettingsPanel } from '@renderer/components/SettingsPanel'
 
 import { ProxyTestFab, type ProxyTestState } from '@renderer/components/ProxyTestFab'
 import { LogDock } from '@renderer/components/LogDock'
@@ -47,10 +48,10 @@ export default function App(): React.JSX.Element {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
   const [browserCount, setBrowserCount] = useState(0)
-  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone' | 'history'>(
+  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone' | 'history' | 'settings'>(
     () => {
       const t = new URLSearchParams(location.search).get('tab')
-      return t === 'proxies' ? 'proxies' : t === 'phone' ? 'phone' : t === 'history' ? 'history' : 'accounts'
+      return t === 'proxies' || t === 'phone' || t === 'history' || t === 'settings' ? t : 'accounts'
     }
   )
   const [phoneAppCount, setPhoneAppCount] = useState(0)
@@ -390,7 +391,7 @@ export default function App(): React.JSX.Element {
               className="mm-tabular flex min-w-[196px] shrink-0 items-center justify-center rounded-full bg-white/20 px-[10px] py-[2px] text-[12px] font-semibold"
               title={auto.lastCycleResult ?? 'chưa chạy vòng nào'}
             >
-              ⏱ tự động {auto.everyMs === 60000 ? '1 phút' : auto.everyMs === 3600000 ? '1 giờ' : '3 giờ'} ·{' '}
+              ⏱ tự động {auto.everyMs === 3600000 ? '1 giờ' : auto.everyMs === 10800000 ? '3 giờ' : `${Math.round(auto.everyMs / 60000)} phút`} ·{' '}
               {auto.running ? 'đang chạy' : auto.nextAt ? `tới ${new Date(auto.nextAt).toLocaleTimeString('vi-VN').slice(0, 5)}` : 'chờ'}{' '}
               · {auto.cycles} vòng
             </span>
@@ -417,8 +418,7 @@ export default function App(): React.JSX.Element {
                 { id: 'history', label: 'Lịch sử' },
                 { id: 'settings', label: 'Cài đặt' }
               ] as const
-            ).map((t) =>
-              t.id === 'accounts' || t.id === 'proxies' || t.id === 'phone' || t.id === 'history' ? (
+            ).map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -438,10 +438,6 @@ export default function App(): React.JSX.Element {
                     <span className="ml-1 text-[var(--stone)]">({phoneAppCount})</span>
                   ) : null}
                 </button>
-              ) : (
-                <span key={t.id} className="px-3 py-1 text-[12.5px] text-[var(--stone)]" title="Sẽ làm sau">
-                  {t.label}
-                </span>
               )
             )}
           </nav>
@@ -460,6 +456,7 @@ export default function App(): React.JSX.Element {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[300px] p-2">
+              <DropdownMenuItem className="mb-1 gap-2" onSelect={() => setTab('settings')}><Settings2 className="size-3.5" /> Cài đặt kịch bản thông minh</DropdownMenuItem>
               <div className="grid gap-1">
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Sang ngày mới tự lấy điểm</span>
@@ -494,7 +491,7 @@ export default function App(): React.JSX.Element {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
-                  <span className="text-[12.5px]" title="Tự chạy lại các task còn thiếu cho tới khi đủ điểm trong ngày">
+                  <span className="text-[12.5px]" title="Kiểm tra nhiệm vụ theo mục tiêu và bộ quy tắc đang áp dụng">
                     ⏱ Tự động chạy
                   </span>
                   <select
@@ -507,12 +504,13 @@ export default function App(): React.JSX.Element {
                       toast.info(
                         ms === 0
                           ? 'Đã TẮT chế độ tự động.'
-                          : `Tự động chạy mỗi ${ms === 60000 ? '1 phút' : ms === 3600000 ? '1 giờ' : '3 giờ'} cho tới khi đủ điểm.`
+                          : `Tự động kiểm tra mỗi ${ms === 3600000 ? '1 giờ' : ms === 10800000 ? '3 giờ' : `${Math.round(ms / 60000)} phút`}, theo bộ quy tắc đang áp dụng.`
                       )
                     }}
                   >
                     <option value={0}>Tắt</option>
                     <option value={60000}>Mỗi 1 phút</option>
+                    <option value={900000}>Mỗi 15 phút</option>
                     <option value={3600000}>Mỗi 1 giờ</option>
                     <option value={10800000}>Mỗi 3 giờ</option>
                   </select>
@@ -664,6 +662,12 @@ export default function App(): React.JSX.Element {
               }
             />
           </>
+        ) : tab === 'settings' ? (
+          <SettingsPanel rows={rows} onSaved={() => {
+            void window.api.getSettings().then(setSettingsState)
+            void window.api.autoStatus().then(setAuto)
+            void reload()
+          }} />
         ) : tab === 'phone' ? (
           <PhonePanel rows={rows} />
         ) : tab === 'history' ? (

@@ -43,23 +43,27 @@ const DEFAULTS: Settings = {
 }
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')
+export const AUTO_INTERVALS = [0, 60000, 900000, 3600000, 10800000] as const
 
 export function getSettings(): Settings {
   try {
     const s = JSON.parse(fs.readFileSync(FILE(), 'utf8')) as Partial<Settings>
-    return { ...DEFAULTS, ...s }
+    const settings = { ...DEFAULTS, ...s }
+    if (!(AUTO_INTERVALS as readonly number[]).includes(settings.autoEveryMs)) settings.autoEveryMs = 0
+    return settings
   } catch {
     return { ...DEFAULTS }
   }
 }
 
 export function setSettings(patch: Partial<Settings>): Settings {
+  if (patch.autoEveryMs !== undefined && !(AUTO_INTERVALS as readonly number[]).includes(patch.autoEveryMs)) throw new Error('Chu kỳ tự động không hợp lệ')
   const next = { ...getSettings(), ...patch }
   try {
     fs.mkdirSync(path.dirname(FILE()), { recursive: true })
     fs.writeFileSync(FILE(), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
   } catch {
-    /* bo qua */
+    throw new Error('Không lưu được cài đặt ứng dụng; vui lòng kiểm tra quyền ghi thư mục dữ liệu')
   }
   return next
 }

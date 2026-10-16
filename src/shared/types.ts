@@ -96,6 +96,14 @@ export type ProxyItem = {
   createdAt: string
 }
 
+/** Chỉ số gốc từ getuserinfo, không phải xác suất đã được Microsoft xác nhận. */
+export type SerpBotScore = {
+  value: number | null
+  updatedAt: string | null
+  checkedAt: string
+  error?: string
+}
+
 export type Snapshot = {
   profileId: string
   at: string
@@ -119,6 +127,11 @@ export type Snapshot = {
   year: number | null
   lifetime: number | null
   searchStreak: Progress
+  /** Số ngày Daily streak đọc từ Earn; undefined = cache cũ, null = chưa đọc được. */
+  dailyStreak?: number | null
+  /** Giá trị Ready to claim đọc từ Dashboard; chỉ đọc, không tự claim. */
+  readyToClaim?: number | null
+  serpBotScore?: SerpBotScore | null
   dailySet: Progress
   edgeMinutes: Progress
   checkIn: Progress

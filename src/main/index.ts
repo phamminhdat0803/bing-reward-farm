@@ -51,6 +51,7 @@ import {
 import { testProxy } from './proxy-test'
 import { addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
+import { getPolicy, previewPolicy, resumePolicy, savePolicy } from './policy-service'
 import type { LogLine } from './core/types'
 import type { RowState } from '../shared/types'
 
@@ -99,7 +100,7 @@ function createWindow(): void {
     // Ban build khong co query string -> mo tab chi dinh bang cach bam nut nav
     if (process.env.BRF_TAB) {
       const tabKey = String(process.env.BRF_TAB)
-      const label = tabKey === 'phone' ? 'Điện thoại' : tabKey === 'proxies' ? 'Proxy' : tabKey === 'history' ? 'Lịch sử' : 'Tài khoản'
+      const label = tabKey === 'phone' ? 'Điện thoại' : tabKey === 'proxies' ? 'Proxy' : tabKey === 'history' ? 'Lịch sử' : tabKey === 'settings' ? 'Cài đặt' : 'Tài khoản'
       mainWindow.webContents.once('did-finish-load', () => {
         setTimeout(() => {
           void mainWindow?.webContents
@@ -1387,6 +1388,13 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   })
 
   ipcMain.handle('settings:get', () => getSettings())
+  ipcMain.handle('policy:get', () => getPolicy())
+  ipcMain.handle('policy:save', (_e, config: unknown) => savePolicy(config))
+  ipcMain.handle('policy:preview', (_e, config?: unknown) => previewPolicy(config))
+  ipcMain.handle('policy:resume', (_e, id: unknown) => {
+    if (typeof id !== 'string' || id.length > 100) throw new Error('Tài khoản không hợp lệ')
+    resumePolicy(id)
+  })
   ipcMain.handle('settings:set', (_e, patch) => setSettings(patch ?? {}))
 
   // ---------- IPC: che do TU DONG ----------

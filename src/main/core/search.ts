@@ -104,6 +104,8 @@ export async function runSearchPass(args: {
   shouldStop?: () => boolean
   /** Bao tien do ra UI (goi sau moi search + sau moi lan doc counter) */
   onProgress?: (p: SearchProgress) => void
+  beforeSearch?: () => boolean
+  onRestriction?: () => void
 }): Promise<SearchPassResult> {
   const { cfg, ctx, log, kind, target, nextQuery, rememberQuery, preparePage, shouldStop } = args
   const page = args.page ?? (await workPage(ctx))
@@ -193,6 +195,24 @@ export async function runSearchPass(args: {
       break
     }
     const q = nextQuery()
+    if (args.beforeSearch) {
+      const restricted = await page.evaluate(() => {
+        const text = document.body?.innerText ?? ''
+        const captcha = document.querySelector('#b_captcha, #captcha, iframe[src*="captcha"], iframe[src*="challenge"]')
+        return !!captcha || /unusual traffic|verify (that )?you are human|automated queries|temporarily restricted|too many requests|unusual search activity|xác minh bạn là con người|tạm thời bị hạn chế/i.test(text)
+      }).catch(() => true)
+      if (restricted) {
+        status = 'restricted'
+        args.onRestriction?.()
+        log.warn(`[${kind}] dừng theo quy tắc: cần kiểm tra giới hạn/xác minh trên trang`)
+        break
+      }
+      if (!args.beforeSearch()) {
+        status = 'policy-limit'
+        log.info(`[${kind}] đã hết ngân sách phiên/ngày hoặc quy tắc đang dừng`)
+        break
+      }
+    }
     try {
       const how = await doSearch(page, q, cfg, shouldStop)
       if (shouldStop?.()) {

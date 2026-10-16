@@ -11,7 +11,8 @@ import { runDailySet } from './core/daily'
 import { runEarnPass } from './core/earn'
 import { buildPool, makeQueryPicker } from './core/queries'
 import { createLogger, sleep } from './core/logger'
-import { EARN_URL, readBreakdown, readCounters } from './core/rewards'
+import { EARN_URL, readBreakdown, readCounters, readSerpBotScore } from './core/rewards'
+import type { SerpBotScore } from '../shared/types'
 import { runSearchPass } from './core/search'
 import { dayRecord, loadState, rememberQuery, saveState, todayKey, usedQuerySet } from './core/state'
 import { DEFAULTS, type CoreConfig, type Logger, type LogLine, type SearchProgress } from './core/types'
@@ -20,6 +21,8 @@ import { withProfileLock } from './lock'
 import { getProfile, logDir, stateFile, updateProfile, type Profile } from './profiles'
 import { clearActiveChain, preflightChain, resolveProxyChain, resolveProxyUrl, setActiveChain } from './proxies'
 import { getSettings } from './settings'
+import { finishPolicyRun, pausePolicy, policyPlan, reservePolicySearch, type PolicyCursor } from './policy-service'
+import { dayKey } from '../shared/policy-engine'
 
 export type Snapshot = {
   profileId: string
@@ -44,6 +47,9 @@ export type Snapshot = {
   year: number | null
   lifetime: number | null
   searchStreak: { progress: number; max: number } | null
+  dailyStreak?: number | null
+  readyToClaim?: number | null
+  serpBotScore?: SerpBotScore | null
   dailySet: { progress: number; max: number } | null
   edgeMinutes: { progress: number; max: number } | null
   checkIn: { progress: number; max: number } | null
@@ -308,6 +314,9 @@ async function readSnapshotFromSession(
     year: null,
     lifetime: null,
     searchStreak: null,
+    dailyStreak: null,
+    readyToClaim: null,
+    serpBotScore: null,
     dailySet: null,
     edgeMinutes: null,
     checkIn: null,
@@ -324,7 +333,10 @@ async function readSnapshotFromSession(
   const ownPage = !existingPage
   try {
     const snap = await readCounters(page, log, { quiet: true })
-    const bd = await readBreakdown(page, log).catch(() => null)
+    const [bd, botScore] = await Promise.all([
+      readBreakdown(page, log).catch(() => null),
+      readSerpBotScore(s.context, log)
+    ])
     base.signedIn = snap.signedIn
     base.ok = snap.ok || !!bd
     base.points = snap.points
@@ -337,6 +349,9 @@ async function readSnapshotFromSession(
     base.year = bd?.year ?? null
     base.lifetime = bd?.lifetime ?? null
     base.searchStreak = snap.counters.search
+    base.dailyStreak = snap.ok ? bd?.dailyStreak ?? null : null
+    base.readyToClaim = snap.readyToClaim
+    base.serpBotScore = botScore
     base.dailySet = snap.counters.dailySet
     base.edgeMinutes = snap.counters.edgeMinutes
     base.checkIn = snap.counters.checkIn
@@ -345,7 +360,8 @@ async function readSnapshotFromSession(
     log.info(
       `snapshot OK: dang-nhap=${base.signedIn} diem=${base.points} hom-nay=${base.todayPoints} ` +
         `desktop=${base.desktop?.progress ?? '?'}/${base.desktop?.max ?? '?'} mobile=${base.mobile?.progress ?? '?'}/${base.mobile?.max ?? '?'} ` +
-        `offers=${base.offers} keepEarning=${base.earn ? `${base.earn.progress}/${base.earn.max}` : 'n/a'} dailySet=${base.dailySet?.progress ?? '?'}/${base.dailySet?.max ?? '?'} links=${base.setLinks.length}`
+        `offers=${base.offers} keepEarning=${base.earn ? `${base.earn.progress}/${base.earn.max}` : 'n/a'} dailySet=${base.dailySet?.progress ?? '?'}/${base.dailySet?.max ?? '?'} links=${base.setLinks.length} ` +
+        `dailyStreak=${base.dailyStreak ?? 'n/a'} readyToClaim=${base.readyToClaim ?? 'n/a'}`
     )
   } finally {
     if (ownPage) await page.close().catch(() => {})
@@ -376,6 +392,9 @@ async function snapshotUnlocked(profile: Profile): Promise<Snapshot> {
     year: null,
     lifetime: null,
     searchStreak: null,
+    dailyStreak: null,
+    readyToClaim: null,
+    serpBotScore: null,
     dailySet: null,
     edgeMinutes: null,
     checkIn: null,
@@ -516,6 +535,14 @@ async function startRunNow(
 
   void withProfileLock(profile.id, async () => {
     try {
+      const policy = policyPlan(profile)
+      let policyHalted = false
+      const policyCursor: PolicyCursor = { date: dayKey(), searches: 0, sessionStarted: false }
+      if (policy.active) {
+        kinds = kinds.filter(kind => policy.tasks.includes(kind as 'desktop' | 'mobile' | 'daily' | 'earn'))
+        log.info(`[policy] ${JSON.stringify({ status: policy.status, reason: policy.reason, kinds, target: policy.effectivePercent, remaining: policy.remainingToday })}`)
+        if (!kinds.length) return
+      }
       // ---- Preflight proxy: chan run khi toan bo proxy chet (no-direct BAT) ----
       const chainAll = resolveProxyChain(profile)
       if (chainAll.length > 0) {
@@ -524,6 +551,7 @@ async function startRunNow(
         if (live.length === 0) {
           const noDirect = getSettings().noDirectFallback !== false
           if (noDirect) {
+            if (policy.active) pausePolicy(profile, 'Không còn proxy hoạt động; cần kiểm tra kết nối')
             log.error(
               `[proxy] DUNG profile: ca ${chainAll.length} proxy deu chet - KHONG fallback DIRECT (no-direct dang BAT, doi trong Cai dat)`
             )
@@ -556,9 +584,12 @@ async function startRunNow(
       const st = loadState(stateFile(profile))
       const rec = dayRecord(st)
       const cfg = coreConfig(profile)
+      if (policy.active) {
+        cfg.search.checkPointsEvery = Math.max(1, Math.min(cfg.search.checkPointsEvery, policy.allowance || 1))
+      }
       const pool = buildPool(cfg.queries.file)
       const nextQuery = makeQueryPicker(pool, usedQuerySet(rec))
-      const shouldStop = (): boolean => job.cancelled
+      const shouldStop = (): boolean => job.cancelled || policyHalted
       const summary: Record<string, unknown> = {}
 
       let doDesktop = kinds.includes('desktop')
@@ -572,11 +603,15 @@ async function startRunNow(
       let lastSnap: Snapshot | null = null
 
       // Mức trần dự kiến: ưu tiên profile cấu hình -> cache Rewards -> mặc định (Level 2: 90/60; nếu Level 1 / <= 30 thì mobile là 0)
-      const expectedDesktopMax = profile.desktopMax ?? cached?.desktop?.max ?? 90
-      const expectedMobileMax = profile.mobileMax ?? cached?.mobile?.max ?? (expectedDesktopMax <= 30 ? 0 : 60)
+      const expectedDesktopMax = policy.active ? policy.desktopTarget : profile.desktopMax ?? cached?.desktop?.max ?? 90
+      const expectedMobileMax = policy.active ? policy.mobileTarget : profile.mobileMax ?? cached?.mobile?.max ?? (expectedDesktopMax <= 30 ? 0 : 60)
 
       let desktopTarget = Math.ceil(Math.max(0, expectedDesktopMax - (cached?.desktop?.progress ?? 0)) / per)
       let mobileTarget = expectedMobileMax > 0 ? Math.ceil(Math.max(0, expectedMobileMax - (cached?.mobile?.progress ?? 0)) / per) : 0
+      if (policy.active) {
+        desktopTarget = Math.min(policy.desktopSearches, policy.allowance)
+        mobileTarget = Math.min(policy.mobileSearches, policy.allowance)
+      }
 
       // 1. Kiểm tra trước theo cache hôm nay: Task nào xong rồi thì loại bỏ ngay
       if (isToday) {
@@ -658,11 +693,14 @@ async function startRunNow(
                 log: log2,
                 kind: 'desktop',
                 target: desktopTarget,
+                beforeSearch: policy.active ? () => reservePolicySearch(profile, policyCursor, 'desktop') : undefined,
+                onRestriction: policy.active ? () => { policyHalted = true; pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn') } : undefined,
                 nextQuery,
-                rememberQuery: (q) => rememberQuery(rec, q),
+                rememberQuery: (q) => { rememberQuery(rec, q); if (policy.active) saveState(stateFile(profile), st) },
                 shouldStop,
                 onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id })
               })
+              if (policy.active && ['proxy-failed', 'check-failed', 'not-signed-in', 'stalled', 'restricted'].includes((summary.desktop as { status: string }).status)) policyHalted = true
               rec.desktop = {
                 searches: (summary.desktop as { searches: number }).searches,
                 pointsBefore: (summary.desktop as { pointsBefore: number | null }).pointsBefore,
@@ -686,7 +724,7 @@ async function startRunNow(
               }
             }
 
-            if (doDaily && !shouldStop()) {
+            if (doDaily && !shouldStop() && (!policy.active || policyPlan(profile).tasks.includes('daily'))) {
               summary.daily = await runDailySet({
                 cfg,
                 ctx: s.context,
@@ -718,7 +756,7 @@ async function startRunNow(
               }
             }
 
-            if (doEarn && !shouldStop()) {
+            if (doEarn && !shouldStop() && (!policy.active || policyPlan(profile).tasks.includes('earn'))) {
               summary.earn = await runEarnPass({
                 cfg,
                 ctx: s.context,
@@ -759,7 +797,7 @@ async function startRunNow(
         }
       }
 
-      if (doMobile && mobileTarget > 0 && !shouldStop()) {
+      if (doMobile && mobileTarget > 0 && !shouldStop() && (!policy.active || policyCursor.searches < policy.allowance)) {
         const bs = await browserState(profile)
         let session: Session
         let kind: 'local' | 'cdp'
@@ -782,8 +820,10 @@ async function startRunNow(
             log: log2,
             kind: 'mobile',
             target: mobileTarget,
+            beforeSearch: policy.active ? () => reservePolicySearch(profile, policyCursor, 'mobile') : undefined,
+            onRestriction: policy.active ? () => { policyHalted = true; pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn') } : undefined,
             nextQuery,
-            rememberQuery: (q) => rememberQuery(rec, q),
+            rememberQuery: (q) => { rememberQuery(rec, q); if (policy.active) saveState(stateFile(profile), st) },
             shouldStop,
             onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id }),
             preparePage: kind === 'cdp' ? (p) => newDeviceSession(p).then(() => undefined) : undefined
@@ -806,6 +846,7 @@ async function startRunNow(
         }
       }
 
+      if (policy.active) finishPolicyRun(profile, summary)
       rec.runs.push({ at: new Date().toISOString(), summary })
       saveState(stateFile(profile), st)
       markRun(profile.id)

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowUpDown, Check, Search, Wifi, Zap } from 'lucide-react'
+import { ArrowUpDown, Check, Search, Wifi } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -19,6 +19,7 @@ import {
 import { Input } from '@renderer/components/ui/input'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import type { ProxyItem, RowState } from '@shared/types'
+import { QuickProxyFill } from './QuickProxyFill'
 
 type SortBy = 'latency-asc' | 'latency-desc' | 'label' | 'free'
 
@@ -53,7 +54,9 @@ export function ProxyPickerDialog({
   rows,
   value,
   onPick,
-  onQuickFill3
+  onQuickFill,
+  quickFillCount = '3',
+  onQuickFillCountChange
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -61,7 +64,9 @@ export function ProxyPickerDialog({
   rows: RowState[]
   value: string
   onPick: (id: string) => void
-  onQuickFill3?: () => void
+  onQuickFill?: () => boolean
+  quickFillCount?: string
+  onQuickFillCountChange?: (value: string) => void
 }): React.JSX.Element {
   const { ref: areaRef, onWheel } = useWheelToScroll()
   const [q, setQ] = useState('')
@@ -157,20 +162,12 @@ export function ProxyPickerDialog({
           >
             Chỉ proxy chưa gắn
           </Button>
-          {onQuickFill3 ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-8 gap-1.5 text-[12px] font-medium text-[var(--brand-blue-deep)]"
-              onClick={() => {
-                onQuickFill3()
-                onOpenChange(false)
-              }}
-              title="Tự động chọn 3 proxy sạch có độ trễ thấp nhất"
-            >
-              <Zap className="size-3.5 fill-amber-500 text-amber-500" />
-              ⚡ Gán nhanh 3 proxy sạch
-            </Button>
+          {onQuickFill && onQuickFillCountChange ? (
+            <QuickProxyFill
+              value={quickFillCount}
+              onValueChange={onQuickFillCountChange}
+              onFill={() => { if (onQuickFill()) onOpenChange(false) }}
+            />
           ) : null}
         </div>
 

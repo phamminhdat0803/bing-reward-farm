@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { AutomationPolicy, PolicyPlan } from '../shared/policy'
 import type { ProxyStat,
   HistoryTask,
   AppSettings,
@@ -16,6 +17,10 @@ import type { ProxyStat,
 } from '../shared/types'
 
 const api = {
+  getAutomationPolicy: (): Promise<AutomationPolicy> => ipcRenderer.invoke('policy:get'),
+  saveAutomationPolicy: (config: AutomationPolicy): Promise<AutomationPolicy> => ipcRenderer.invoke('policy:save', config),
+  previewAutomationPolicy: (config?: AutomationPolicy): Promise<PolicyPlan[]> => ipcRenderer.invoke('policy:preview', config),
+  resumeAutomationPolicy: (id: string): Promise<void> => ipcRenderer.invoke('policy:resume', id),
   listProfiles: (): Promise<Profile[]> => ipcRenderer.invoke('profiles:list'),
   addProfile: (input: Partial<Profile>): Promise<Profile> => ipcRenderer.invoke('profiles:add', input),
   updateProfile: (id: string, patch: Partial<Profile>): Promise<Profile> =>

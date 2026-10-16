@@ -6,6 +6,55 @@ Electron 39 + electron-vite 5 + React 19 + Tailwind v4 + shadcn. Lõi automation
 
 ## Lệnh
 
+- **Cài đặt kịch bản thông minh (2026-10-16)**: tab Cài đặt và menu Cài đặt chạy mở `SettingsPanel`.
+  6 mẫu: chỉ theo dõi / 3 lượt-ngày / 3 phiên-ngày / mục tiêu 20% / score cao→20% / chỉ Daily set.
+  Quy tắc chung + override từng profile; Bật và Lưu mới có hiệu lực. Lịch tự động vẫn là lựa chọn riêng.
+  `shared/policy.ts` (schema/default/preset), `shared/policy-engine.ts` (validator + planner thuần),
+  `main/policy-service.ts` → `automation-policy.json`, `policy-usage.json` ghi nguyên tử trong userData.
+  Planner dùng cache hôm nay, hạn mức thật, ngân sách lượt/phiên chung desktop+mobile, khung giờ/ngày,
+  khoảng cách phiên, pauseUntil, cooldown, giới hạn lỗi, task bị khoá/không hỗ trợ.
+  Bot rule kiểm tra `serpbotscore_upd`, KHÔNG dùng `checkedAt` để làm mới score cũ; ngưỡng do người dùng chọn.
+  `reservePolicySearch` ghi lượt trước khi gửi; giữ qua restart, đối chiếu usedQueries/runs cũ;
+  `core/search.beforeSearch` chặn hết quota/giới hạn/xác minh. Không tự vượt CAPTCHA.
+  Runner và `auto.pendingTasks` cùng dùng planner; đủ mục tiêu riêng không bị auto chạy bù/escalate.
+  Proxy lỗi có thể dừng hoặc test/gán lại N proxy; không tái dùng proxy chính/dự phòng của acc khác.
+  IPC `policy:get/save/preview/resume`; preview không mở browser; resume chỉ gỡ chờ lỗi, KHÔNG xoá lượt/phiên.
+  Mặc định bộ quy tắc **tắt**, không tự bật lịch. Test thuần (không gửi search):
+  `node --test tools/test-policy.mjs tools/test-policy-service.mjs tools/test-policy-search.mjs tools/test-policy-auto.mjs tools/test-policy-settings.mjs`.
+  UI: app `BRF_DEBUG=9377`, `node tools/test-policy-ui.mjs` (lưu thử khi tắt, khôi phục cấu hình gốc).
+
+- Gán nhanh proxy (2026-10-16): ô **Số proxy** nhập số nguyên ≥1, dùng chung trong AccountDialog và
+  ProxyPickerDialog. Tổng N = 1 chính + N−1 dự phòng; giảm về 1 phải xoá dự phòng cũ trong form.
+  `QuickProxyFill.tsx` là control dùng chung; `lib/proxy-quick-fill.ts` chọn tối đa N URL khác nhau,
+  loại proxy của tài khoản khác và proxy đã test lỗi, ưu tiên đã test OK/ping thấp rồi mới proxy chưa test.
+  Thiếu proxy ⇒ cảnh báo số đã gán / số yêu cầu; không có ứng viên ⇒ giữ form, picker không tự đóng.
+  Chỉ ghi cấu hình khi Lưu/Tạo. Test: `node --test tools/test-proxy-quick-fill.mjs`;
+  UI nháp: app `BRF_DEBUG=9366`, `node tools/test-proxy-quick-fill-ui.mjs` (không lưu, không mở Rewards).
+
+- SERP bot score (2026-10-16): trong mỗi snapshot, `readSerpBotScore(context)` mở tab phụ GET
+  `https://rewards.bing.com/api/getuserinfo` **cùng phiên đăng nhập**, song song với đọc breakdown, rồi đóng tab.
+  Đọc `dashboard.userProfile.attributes.serpbotscore` hoặc `profile.attributes.serpbotscore` (JSON thật trả string `"0.95"`),
+  kèm `serpbotscore_upd`. Lưu `snapshot.serpBotScore = {value, updatedAt, checkedAt, error?}`.
+  Chỉ nhận số hữu hạn trong [0,1]; HTTP 401, HTML, timeout, thiếu trường ⇒ value=null, không làm lỗi snapshot.
+  Cốc Cốc trả `text/html` bọc JSON: nếu `response.json()` lỗi, thử `JSON.parse(body.innerText)`; chỉ nhận JSON đúng schema.
+  Chỉ lưu các trường này, **không lưu/log toàn bộ JSON chứa dữ liệu cá nhân**.
+  UI: khối tài khoản căn trái gồm tên/email → browser/proxy → trạng thái + Bot score; progress giữ nguyên.
+  Badge quy đổi score ×100 sang %, drawer hiện số gốc /1 và thời gian nguồn/lần đọc.
+  **Không khẳng định đây là xác suất bị Microsoft kết luận là bot**; không tự đặt ngưỡng cảnh báo chưa có tài liệu.
+  Test: `node --test tools/test-rewards-summary.mjs tools/test-serp-bot-score.mjs`.
+
+- Daily streak / Ready to claim (2026-10-16): `snapshot` đọc `dailyStreak` từ thân trang Earn,
+  `readyToClaim` từ Dashboard, lưu cache và xuất log; drawer có hai card chi tiết.
+  Bảng tài khoản gom thành **8 cột, width theo % tổng 100%, không min-width, không cuộn ngang**:
+  chọn / tài khoản (kèm trạng thái, proxy, browser) / điểm (tổng + hôm nay) / tìm kiếm (desktop + mobile + số lượt) /
+  hoạt động (daily set + keep earning + offers + điểm khoá) / daily streak / ready to claim / thao tác (kèm giờ cập nhật).
+  `Table horizontalScroll={false}` chỉ áp dụng bảng tài khoản; các bảng khác vẫn cuộn ngang khi cần.
+  `undefined` = cache cũ; `null` = chưa đọc được; **0 là giá trị thật**, không dùng làm fallback khi lỗi.
+  Không tự bấm Claim. Parser: `src/main/core/rewards-summary.ts`.
+  Test: `node --test tools/test-rewards-summary.mjs`; test thật bằng IP trực tiếp:
+  mở app với `BRF_DEBUG=9333`, chạy `node tools/test-rewards-summary-live.mjs` (đóng browser profile trước).
+  Script dùng `--no-proxy-server`, không sửa proxy đã lưu; thêm `--ui-only` để chỉ kiểm tra giao diện/cache.
+
 ```powershell
 npm install
 npm run dev        # electron-vite dev (HMR renderer, tự build main/preload)

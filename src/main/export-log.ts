@@ -56,6 +56,8 @@ function profileBlock(p: Profile, logLines: number): string {
       `- tiến độ: desktop ${c.desktop?.progress ?? 0}/${c.desktop?.max ?? '?'} · mobile ${c.mobile?.progress ?? 0}/${c.mobile?.max ?? '?'} · ` +
         `daily set ${c.dailySet?.progress ?? 0}/${c.dailySet?.max ?? '?'} · keep earning ${c.earn?.progress ?? 0}/${c.earn?.max ?? '?'} · offers ${c.offers ?? 0}`
     )
+    out.push(`- Daily streak (Earn): ${c.dailyStreak == null ? 'chưa đọc được' : `${c.dailyStreak} ngày`} · Ready to claim (Dashboard): ${c.readyToClaim ?? 'chưa đọc được'}`)
+    out.push(`- serpbotscore: ${c.serpBotScore?.value ?? 'chưa đọc được'} / 1 · nguồn cập nhật: ${c.serpBotScore?.updatedAt ?? '?'} · đọc lúc: ${c.serpBotScore?.checkedAt ?? '?'}${c.serpBotScore?.error ? ` · ${c.serpBotScore.error}` : ''}`)
     if (c.earn?.blocked?.length) out.push(`- mục bị khoá: ${c.earn.blocked.map((b) => `${b.label} (${b.reason})`).join(' | ')}`)
   } else {
     out.push('- số liệu: chưa có (chưa chạy lần nào)')

@@ -7,8 +7,9 @@ import { ScrollArea, ScrollBar } from '@renderer/components/ui/scroll-area'
 function Table({
   className,
   containerClassName,
+  horizontalScroll = true,
   ...props
-}: React.ComponentProps<'table'> & { containerClassName?: string }): React.JSX.Element {
+}: React.ComponentProps<'table'> & { containerClassName?: string; horizontalScroll?: boolean }): React.JSX.Element {
   return (
     // Dung ScrollArea (thanh cuon tu ve) thay cho cuon native
     <ScrollArea data-slot="table-container" className={cn('relative min-h-0 w-full flex-1', containerClassName)}>
@@ -19,7 +20,7 @@ function Table({
         className={cn('w-full caption-bottom border-separate border-spacing-0 text-sm', className)}
         {...props}
       />
-      <ScrollBar orientation="horizontal" />
+      {horizontalScroll ? <ScrollBar orientation="horizontal" /> : null}
     </ScrollArea>
   )
 }

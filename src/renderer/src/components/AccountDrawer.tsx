@@ -30,6 +30,8 @@ import { Separator } from '@renderer/components/ui/separator'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@renderer/components/ui/sheet'
 import { fmtNum, pct, timeAgo } from '@renderer/lib/utils'
+import { RewardsSummary } from './RewardsSummary'
+import { BotScoreDetails } from './BotScore'
 
 type Props = {
   row: RowState | null
@@ -302,6 +304,9 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                   </div>
                 </div>
               </div>
+
+              <RewardsSummary cache={c} />
+              <BotScoreDetails data={c?.serpBotScore} />
 
               <div>
                 <div className="mb-0.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--steel)]">
