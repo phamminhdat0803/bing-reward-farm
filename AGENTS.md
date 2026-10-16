@@ -125,6 +125,20 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
 ## Quy ước UI
+### Quy uoc UI chong "giat/nhay" (bat buoc — 2026-10-16)
+
+Hai bug nguoi dung bao trong ngay 16/10, deu thuoc nhom "layout khong on dinh":
+
+1. **Khong dung `hover:scale-*` (hay bat ky transform doi hinh hoc) tren phan tu dang neo popover/dropdown.**
+   FAB proxy tung dung `hover:scale-[1.06]` lam floating-ui tinh lai vi tri moi frame -> popover nhay -> mat hover ->
+   lap vo tan. Hover phai doi thu KHONG doi kich thuoc: vien + bong (`transition-[box-shadow,border-color]`).
+   Do lai: hook `BRF_FAB_HOVER` lay 12 mau khi hover -> lech 0px moi truc.
+2. **Thanh trang thai / chip phai CO DINH chieu cao va khong day nhau**: dung
+   `grid h-8 grid-cols-[1fr_auto_1fr]` + `leading-none` + `overflow-hidden`, chip o cot phai co `min-w` va
+   **so dang `mm-tabular`** — neu de `flex justify-center` thi moi lan chip xuat hien / doi noi dung
+   ("dang chay" <-> "toi HH:MM") la ca dong nhay ngang va lech line-height lam thanh tren cao/thap nhay nhay.
+   Do lai: hook `BRF_BAR_JITTER` do 3 trang thai (tat / bat 1 gio / co badge can phan tich) -> lech 0px.
+
 
 - **Góc phải dưới = nơi báo tiến độ** (người dùng yêu cầu 2026-10-15): KHÔNG dùng banner ngang trong nội dung.
   Hai cục tròn `size-12` xếp trong 1 cột `fixed bottom-[64px] right-5 z-40` (wrapper `pointer-events-none`,
@@ -276,6 +290,95 @@ Ly do (do that, khong phai loi code):
 - Acc dang nhap bang IP nha (`default`), khi doi sang proxy la -> Bing tra ve `not-signed-in`
   => pass dung som truoc buoc do IP. Muon co bang chung: dang nhap acc qua dung proxy do
   (Mo trinh duyet -> dang nhap) roi chay lai, hoac dung proxy tra phi on dinh.
+
+## Che do TU DONG + leo thang cho agent (2026-10-16)
+
+Nguoi dung yeu cau: menu chon chu ky (1 phut / 1 gio / 3 gio) tu chay lai den khi DU DIEM; acc gap loi proxy
+thi TU kiem tra toan bo proxy -> TU gan lai 3 proxy sach -> chay tiep; point nao sau **3 lan retry khong len**
+thi ghi HO SO de agent phan tich (agent chay lai demo tim huong sua, khong duoc thi nguoi dung ho tro).
+
+- `src/main/auto.ts`:
+  - `pendingTasks(profile)` — task con thieu theo so lieu da luu (`cache.get`), KHONG mo trinh duyet:
+    desktop < min(desktopMax, max thuc te) · mobile < mobileMax · dailySet < max · offers < 1.
+  - `runAutoCycle(reason)` — 1 vong cho tat ca acc: kiem tra `resolveProxyChain` + `preflightChain`; neu **ca chain deu chet**
+    thi `remediateProxies()`: `testAll(15)` → `pickCleanProxies(3)` (lastTest.ok, ping thap, **chua acc nao dung**) →
+    `updateProfile({proxyId, proxyFallbacks})` → chay tiep. Sau khi run xong cho **90 giay** (diem bao cao tre) roi doc lai cache.
+  - Tang `tries` khi tien do task **khong doi**; `tries >= 3` ⇒ `writeEscalation()` ghi
+    `%APPDATA%\bing-reward-farm\escalations\<ngay>-<acc>-<task>.json` (summary tieng Viet + `goiYChoAgent` + toàn bộ attempts:
+    diem truoc/sau, tien do truoc/sau, proxy, loi). Task da leo thang thi **khong chay lai** trong ngay.
+  - `setAutoEvery(ms)` luu `settings.autoEveryMs`; `startAutoLoop()` hen gio lai; state luu `auto-state.json` (reset theo ngay).
+- IPC/preload: `auto:status`, `auto:setEvery`, `auto:runNow`, `auto:stop`, `auto:escalations`, `auto:pending`, `auto:pickClean`,
+  su kien `auto:changed` + log `[tu dong] ...` day len khung Log.
+- UI: menu **Cài đặt chạy → “⏱ Tự động chạy”** (Tắt / Mỗi 1 phút / Mỗi 1 giờ / Mỗi 3 giờ). Khi bat, thanh tren hien chip
+  `⏱ tự động 1 giờ · tới HH:MM · N vòng`. Co ho so thi hien nut do **“⚠ N điểm cần phân tích”** → bam se copy đường dẫn các file
+  JSON để đưa cho agent.
+- Kiem chung 2026-10-16 (`BRF_AUTO_TEST=1 BRF_AUTO_FAKE_FAIL=1`): bat chu ky 1 phut -> `enabled=true nextAt=...`;
+  `pendingTasks` dung voi du lieu that (`mobile, dailySet, offers` — desktop da 90/90); `pickCleanProxies(3)` ra
+  3 proxy sach (231/291/316ms); ghi va liet ke ho so OK; UI hien badge `⚠ 1 điểm cần phân tích`; tra chu ky ve 0 sau test.
+
+### 2 BUG cua che do tu dong, tim ra tu chinh 6 ho so leo thang (2026-10-16)
+
+Nguoi dung dan 6 file escalation. Doc `attempts` + doi chieu log profile ⇒ **ca 6 deu la bao dong SAI**:
+
+1. **SAI KIND (nang nhat)**: auto truyen `['mobile','dailySet','offers']` nhung runner chi hieu
+   `kinds.includes('desktop'|'mobile'|'daily'|'earn')`. `'dailySet'`/`'offers'` **khong duoc nhan ra**
+   ⇒ auto **chua bao gio chay daily set**, sau 3 vong lai ghi ho so "daily set khong len diem".
+   Log chung minh: `[run] Tat ca cac task yeu cau (mobile, dailySet, offers) deu da hoan thanh!`.
+   ⇒ Doi `AutoTask = 'desktop' | 'mobile' | 'daily' | 'earn'` (trung kind runner) + `normalizeTask()` cho ten cu.
+2. **SAI MAX MOBILE**: truoc day lay `profile.mobileMax ?? 60` nen acc **khong co diem mobile** (Level 1 / Taiwan,
+   snapshot `mobile max = 0`) van bi xep lich mobile 3 lan ⇒ 4 ho so sai. Nay chi xep khi `cached.mobile.max > 0`.
+3. **Proxy chet giua run** bi tinh la "task khong len diem": log co `DUNG profile: ca 3 proxy deu chet`.
+   Nay `runLog` chua cau do ⇒ **khong tang tries**, thay bang remediate proxy roi chay lai.
+4. **Het proxy sach** ⇒ ghi ho so rieng `<ngay>-<acc>-proxy.json` de **nguoi dung bo sung proxy** (dung luong
+   "khong sua duoc thi nguoi ho tro"). `attempts` nay kem `error` = 6 dong log cuoi cua run + `context`
+   (level, desktop/mobile/dailySet/earn, setLinks) cho agent phan tich tiep.
+   Sau khi sua, `pendingTasks` that te tra ve: `default: earn`, `thap-vu: du diem`, `datkenhtg: daily, earn` (hop ly).
+
+### Bug "treo 1 lenh cho mai" (2026-10-16)
+
+Trieu chung: badge `Lệnh chờ của cùng acc (1) — Đạt Phạm — 1 lệnh chờ` dung mai, khong chay cung khong mat.
+Nguyen nhan: `pumpProfile()` trong `runner.ts` lay lenh ra va chay tiep nhung **khong goi `notifyQueue()`**
+⇒ renderer khong bao gio duoc cap nhat ⇒ badge treo vinh vien (du hang doi thuc te da rong).
+
+Da sua + chan tai phat:
+- `pumpProfile()` goi `notifyQueue()` o moi nhanh; `startRunNow` xong cung notify.
+- `PendingRun.queuedAt` + **watchdog** moi 30s (`watchdogQueues`): acc co lenh cho ma **khong co job nao chay** ⇒ chay tiep;
+  lenh cho **qua 15 phut** ⇒ bo + ghi log `[queue] BO N lenh cho treo cua <acc>`.
+- `clearQueue(profileId?)` + IPC `run:clearQueue`: UI co nut **Xoá** tung acc va **Xoá hết** trong popover lệnh chờ,
+  kem tuoi lenh (`oldestWaitMs` → "3 phút").
+- Kiem chung `BRF_QUEUE_TEST=1`: bom 1 lenh cho 20 phut + 1 lenh moi ⇒ log `BO 1 lenh cho treo cua Đạt Phạm`,
+  `Tháp Vu: chay lenh ke tiep cua cung acc`, sau 36s `queueView().items = []`.
+
+## App "tự crash" — chẩn đoán 2026-10-16 (KHÔNG phải lỗi code)
+
+Hiện tượng: sáng 2026-10-16 ~08:29, app đang chạy desktop pass thì `yarn dev` kết thúc
+`error Command failed with exit code 4294967295` (= -1).
+
+Bằng chứng thu được:
+- `%APPDATA%\bing-reward-farm\crash.log` **không có dòng nào của ngày 16/10** (dòng cuối là 2026-10-15T03:26Z).
+  Tức `uncaughtException`/`unhandledRejection` **không hề bắn**.
+- **Windows Event Log** (Application, 14h gần nhất) không có WER/Application Error cho `electron`/`node.exe`.
+- Log profile `logs\default\2026-10-16.log` dừng giữa pass desktop (`sau 20 search`) — không có dòng lỗi.
+
+⇒ Kết luận: process **bị kết thúc từ bên ngoài** (đóng cửa sổ app → `window-all-closed` → `app.quit()`,
+hoặc bị kill / phiên dev bị dừng), **không phải crash do code**. Xem thêm mục "Loi mang lam chet app" bên dưới
+(crash.log toàn bộ 747 dòng là lỗi TLS `Client network socket disconnected...` — handler đã bắt, không chết app).
+
+Đã thêm bộ chẩn đoán (để lần sau biết chắc trong 1 phút):
+- `app.on('child-process-gone' | 'render-process-gone')` → ghi `crash.log`.
+- `app.on('before-quit')`, `window-all-closed`, `process.on('exit')` → ghi `crash.log` kèm mã thoát.
+- **Nhịp tim**: `%APPDATA%\bing-reward-farm\heartbeat.txt` ghi đè mỗi 2 phút (pid, rss, heap, uptime).
+  App chết đột ngột ⇒ file này đứng trước dòng log cuối.
+
+**Chạy ổn định (khuyến nghị)**: dùng `chay-farm.cmd` (build rồi `npx electron .`) thay cho `yarn dev`:
+bản build không có vite watcher nên không chết theo phiên dev. Log: `%TEMP%\brf-app.log`.
+- Kiểm chứng 2026-10-16: chạy build → app lên, bảng 5 acc, (3 trình duyệt), heartbeat ghi `rss=102MB`.
+- Bản build **không có query string** nên hook `BRF_TAB` phải bấm nút nav (đã sửa trong `main/index.ts`).
+
+### Trạng thái khi điện thoại KHÔNG cắm (kiểm chứng 2026-10-16)
+- Mở app: badge nav **không** hiện số cũ (App gọi `detectPhoneApps()` thật khi khởi động; tab Điện thoại cũng dò thật khi mở).
+- Tab Điện thoại: chip thiết bị `⚠ mất kết nối` + dải cảnh báo `khong thay thiet bi nao qua adb (...) · lần dò gần nhất: ...`.
+- `phone-apps.json`: thiết bị và 16 app cũ **vẫn còn** nhưng `online:false` — không mất dữ liệu.
 
 ## Tab "Điện thoại" — ĐIỂM DANH rồi ĐỔI ACC trên điện thoại (chốt 2026-10-15)
 

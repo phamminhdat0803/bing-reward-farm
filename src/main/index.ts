@@ -4,11 +4,47 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
 import { browserState, closeBrowser, openBrowser, verifyRunningBrowsers } from './browsers'
-import { openLoginWindow, queueView, refreshMany, resetProfile, runState, runStateAll, signOut, snapshot, startRun, stopRun } from './runner'
+import {
+  clearQueue,
+  debugPushPending,
+  openLoginWindow,
+  queueView,
+  refreshMany,
+  resetProfile,
+  runState,
+  runStateAll,
+  signOut,
+  snapshot,
+  startRun,
+  stopRun,
+  watchdogQueues
+} from './runner'
 import * as cache from './cache'
 import { detectBrowsers } from './browser-detect'
 import { detectPhoneApps, getPhoneSnapshot } from './phone-apps'
-import { checkInCurrentBingAccount, launchBing, readCurrentBingAccount, readSignedInAccount, signOutBing, startSignIn } from './phone'
+import {
+  autoStatus,
+  listEscalations,
+  pendingTasks,
+  pickCleanProxies,
+  runAutoCycle,
+  setAutoEvery,
+  setAutoNotifier,
+  startAutoLoop,
+  stopAutoNow,
+  writeEscalation
+} from './auto'
+import {
+  autoCheckInAll,
+  checkInCurrentBingAccount,
+  launchBing,
+  readAccountPage,
+  readCurrentBingAccount,
+  readSignedInAccount,
+  signOutBing,
+  startSignIn,
+  switchToAccount
+} from './phone'
 import { testProxy } from './proxy-test'
 import { addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
@@ -57,6 +93,20 @@ function createWindow(): void {
     mainWindow.loadURL(qs ? `${base}/?${qs}` : base)
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    // Ban build khong co query string -> mo tab chi dinh bang cach bam nut nav
+    if (process.env.BRF_TAB) {
+      const label = String(process.env.BRF_TAB) === 'phone' ? 'Điện thoại' : String(process.env.BRF_TAB) === 'proxies' ? 'Proxy' : 'Tài khoản'
+      mainWindow.webContents.once('did-finish-load', () => {
+        setTimeout(() => {
+          void mainWindow?.webContents
+            .executeJavaScript(
+              `(() => { const b = [...document.querySelectorAll('nav button')].find((x) => (x.textContent||'').includes(${JSON.stringify(label)})); if (b) { b.click(); return 'ok' } return 'khong thay nut' })()`
+            )
+            .then((r) => console.log(`[tab] ${r}`))
+            .catch(() => {})
+        }, 2500)
+      })
+    }
   }
 
   mainWindow.webContents.once('did-finish-load', () => {
@@ -240,6 +290,70 @@ if (process.env.BRF_TEST_ALL) {
     })()
   }
 
+  // Tien ich dev: BRF_PHONE_AUTO=1 -> kiem thu chuyen acc + diem danh that (BRF_PHONE_TARGET=<email>)
+  if (process.env.BRF_PHONE_AUTO) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const serial = getPhoneSnapshot().devices[0]?.serial ?? ''
+          if (!serial) {
+            console.log('[phone-auto] khong co serial')
+            return
+          }
+          const page = await readAccountPage(serial)
+          console.log(`[phone-auto] trang tai khoan: signedIn=${page.signedInEmail} coMay=${page.accounts.length} acc=[${page.accounts.map((a) => a.email).join(', ')}]`)
+          const target = process.env.BRF_PHONE_TARGET ?? ''
+          if (target) {
+            const sw = await switchToAccount(serial, target)
+            console.log(`[phone-auto] chuyen sang ${target}: ${JSON.stringify(sw)}`)
+            const res = await checkInCurrentBingAccount(serial, 0)
+            console.log(`[phone-auto] diem danh: ${JSON.stringify(res)}`)
+          } else {
+            const targets = page.accounts.map((a) => ({ email: a.email, name: a.name }))
+            const out = await autoCheckInAll(serial, targets, (row, i, total) =>
+              console.log(`[phone-auto] ${i}/${total} ${row.email}: switched=${row.switched} ok=${row.ok} gained=${row.gained} already=${row.alreadyDone} err=${row.error ?? '-'}`)
+            )
+            console.log(`[phone-auto] TONG: ${out.reduce((s, r) => s + r.gained, 0)} diem`)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 8000))
+    })
+  }
+
+  // Tien ich dev: BRF_PHONE_FLOW=1 -> kiem thu flow moi: doc acc dang dang nhap (roi dang xuat + dien email neu co BRF_PHONE_SIGNIN)
+  if (process.env.BRF_PHONE_FLOW) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const serial = getPhoneSnapshot().devices[0]?.serial ?? ''
+          if (!serial) {
+            console.log('[phone-flow] khong co serial')
+            return
+          }
+          const acct = await readSignedInAccount(serial, 0)
+          console.log(`[phone-flow] acc dang dang nhap: ${JSON.stringify(acct)}`)
+
+          const email = process.env.BRF_PHONE_SIGNIN
+          if (email && email !== '1') {
+            const out = await signOutBing(serial)
+            console.log(`[phone-flow] dang xuat: ${JSON.stringify(out)}`)
+            const si = await startSignIn(serial, email)
+            console.log(`[phone-flow] mo form dang nhap + dien email: ${JSON.stringify(si)}`)
+            const wc = mainWindow?.webContents
+            if (wc) {
+              const img = await wc.capturePage()
+              const dir = join(process.cwd(), 'docs')
+              mkdirSync(dir, { recursive: true })
+              const file = join(dir, `shot-phone-flow-${Date.now()}.png`)
+              writeFileSync(file, img.toPNG())
+              console.log(`[phone-flow] anh (man hinh app): ${file}`)
+            }
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 8000))
+    })
+  }
+
   // Tien ich dev: BRF_PHONE_CHECKIN=<serial|1> -> chay diem danh that qua app (khong can bam UI)
   if (process.env.BRF_PHONE_CHECKIN) {
     mainWindow.webContents.once('did-finish-load', () => {
@@ -382,6 +496,220 @@ if (process.env.BRF_TEST_ALL) {
           }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_QUEUE_TEST=1 -> kiem thu watchdog hang doi (lenh cho treo phai bi bo, lenh cho moi phai duoc chay)
+  if (process.env.BRF_QUEUE_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const profs = loadStore().profiles
+          if (profs.length < 2) {
+            console.log('[queue-test] can >= 2 acc')
+            return
+          }
+          debugPushPending(profs[0].id, 20 * 60 * 1000) // lenh cho 20 phut -> phai bi BO
+          debugPushPending(profs[1].id, 0, []) // lenh cho moi, kinds rong -> phai duoc CHAY tiep
+          console.log(`[queue-test] sau khi bom: ${JSON.stringify(queueView().items)}`)
+          await new Promise((r) => setTimeout(r, 36_000))
+          console.log(`[queue-test] sau 36s (watchdog da chay): ${JSON.stringify(queueView().items)}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
+    })
+  }
+
+  // Tien ich dev: BRF_BAR_JITTER=1 -> do do on dinh cua thanh tren (bug badge nhay len xuong 2026-10-16)
+  if (process.env.BRF_BAR_JITTER) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const measure = async (): Promise<{ h: number; top: number; left: number; right: number } | null> =>
+            (await wc.executeJavaScript(`(() => {
+              const bar = document.querySelector('[data-slot="promo-bar"]') || document.querySelector('div.bg-\\\\[var\\\\(--primary\\\\)\\\\]')
+              if (!bar) return null
+              const kids = [...bar.children]
+              const mid = kids[1]
+              const r = bar.getBoundingClientRect()
+              const m = mid ? mid.getBoundingClientRect() : r
+              return { h: Math.round(r.height), top: Math.round(m.top), left: Math.round(m.left), right: Math.round(m.right) }
+            })()`)) as { h: number; top: number; left: number; right: number } | null
+
+          const sample = async (label: string, times = 8): Promise<void> => {
+            const rows: { h: number; top: number; left: number; right: number }[] = []
+            for (let i = 0; i < times; i += 1) {
+              const m = await measure()
+              if (m) rows.push(m)
+              await new Promise((r) => setTimeout(r, 260))
+            }
+            if (!rows.length) {
+              console.log(`[bar] ${label}: khong do duoc`)
+              return
+            }
+            const span = (k: 'h' | 'top' | 'left' | 'right'): number =>
+              Math.max(...rows.map((r) => r[k])) - Math.min(...rows.map((r) => r[k]))
+            console.log(
+              `[bar] ${label}: cao lech ${span('h')}px · top lech ${span('top')}px · left lech ${span('left')}px · right lech ${span('right')}px` +
+                ` => ${span('h') + span('top') + span('left') + span('right') === 0 ? 'ON DINH' : 'CO DICH CHUYEN'}`
+            )
+          }
+
+          await sample('truoc khi bat tu dong')
+          setAutoEvery(3_600_000)
+          await new Promise((r) => setTimeout(r, 900))
+          await sample('sau khi bat tu dong 1 gio')
+          // gia lap dang chay -> chu tren chip doi
+          await wc.executeJavaScript(`window.dispatchEvent(new Event('focus'))`)
+          const p0 = loadStore().profiles[0]
+          writeEscalation(p0, 'desktop', {
+            tries: 3,
+            escalated: true,
+            lastProgress: '0/90',
+            attempts: []
+          })
+          try {
+            broadcast('auto:changed', autoStatus() as never)
+          } catch {
+            /* bo qua */
+          }
+          await new Promise((r) => setTimeout(r, 900))
+          await sample('sau khi hien badge can phan tich')
+          setAutoEvery(0)
+          console.log('[bar] da tra tu dong ve TAT')
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
+    })
+  }
+
+  // Tien ich dev: BRF_AUTO_TEST=1 -> kiem thu che do tu dong (lich chay, task thieu, proxy sach, ho so escalation)
+  if (process.env.BRF_AUTO_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const before = autoStatus()
+          console.log(`[auto-test] truoc: enabled=${before.enabled} everyMs=${before.everyMs} cycles=${before.cycles}`)
+
+          const on = setAutoEvery(60_000)
+          console.log(`[auto-test] bat chu ky 1 phut: enabled=${on.enabled} nextAt=${on.nextAt}`)
+
+          for (const p of loadStore().profiles) {
+            console.log(`[auto-test] task thieu ${p.name} (${p.id}): ${pendingTasks(p).join(', ') || 'du diem'}`)
+          }
+          const clean = pickCleanProxies(3)
+          console.log(
+            `[auto-test] 3 proxy sach: ${clean.map((c) => `${c.label}${c.latency != null ? ` ${c.latency}ms` : ''}`).join(' | ') || 'khong co'}`
+          )
+
+          if (process.env.BRF_AUTO_FAKE_FAIL) {
+            const p = loadStore().profiles[0]
+            const ts = {
+              tries: 3,
+              escalated: true,
+              lastProgress: '0/90',
+              attempts: [
+                {
+                  at: new Date().toISOString(),
+                  task: 'desktop' as const,
+                  pointsBefore: 1000,
+                  pointsAfter: 1000,
+                  gained: 0,
+                  taskProgressBefore: '0/90',
+                  taskProgressAfter: '0/90',
+                  proxy: 'socks5://116.104.251.199:1081',
+                  error: 'mau thu nghiem (dev hook)'
+                }
+              ]
+            }
+            const file = writeEscalation(p, 'desktop', ts)
+            console.log(`[auto-test] da ghi ho so mau: ${file}`)
+            console.log(`[auto-test] danh sach ho so: ${listEscalations().length}`)
+          }
+
+          setAutoEvery(Number(process.env.BRF_AUTO_EVERY ?? 0))
+          console.log(`[auto-test] tra chu ky ve ${autoStatus().everyMs} ms`)
+
+          await new Promise((r) => setTimeout(r, 2500))
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const out = join(dir, `shot-auto-${Date.now()}.png`)
+          writeFileSync(out, img.toPNG())
+          console.log(`[auto-test] anh: ${out}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
+    })
+  }
+
+  // Tien ich dev: BRF_FAB_HOVER=1 -> do do "giat" cua popover FAB proxy khi hover (bug UI 2026-10-16)
+  if (process.env.BRF_FAB_HOVER) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          // bat mot lan kiem tra proxy de FAB xuat hien
+          void testAll(15, undefined, (p) => broadcast('proxies:testProgress', p))
+          await new Promise((r) => setTimeout(r, 8000))
+
+          const rect = await wc.executeJavaScript(`(() => {
+            const b = document.querySelector('[data-slot="proxy-test-fab"]')
+            if (!b) return null
+            const r = b.getBoundingClientRect()
+            return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), w: Math.round(r.width), h: Math.round(r.height) }
+          })()`)
+          console.log(`[fab-hover] FAB: ${JSON.stringify(rect)}`)
+          if (!rect) return
+
+          // mo popover bang pointer event (Radix mo bang pointerdown)
+          await wc.executeJavaScript(`(() => {
+            const b = document.querySelector('[data-slot="proxy-test-fab"]')
+            if (!b) return 'khong thay FAB'
+            const r = b.getBoundingClientRect()
+            const o = { bubbles: true, cancelable: true, composed: true, pointerType: 'mouse', button: 0, buttons: 1, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }
+            b.dispatchEvent(new PointerEvent('pointerdown', o))
+            b.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 }))
+            b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: o.clientX, clientY: o.clientY }))
+            return 'da mo'
+          })()`)
+          await new Promise((r) => setTimeout(r, 900))
+
+          // hover that bang chuot + do vi tri popover 12 lan
+          const samples: { top: number; left: number; w: number; h: number; fabW: number }[] = []
+          for (let i = 0; i < 12; i += 1) {
+            wc.sendInputEvent({ type: 'mouseMove', x: rect.x, y: rect.y })
+            await new Promise((r) => setTimeout(r, 120))
+            const s = await wc.executeJavaScript(`(() => {
+              const m = document.querySelector('[role="menu"]')
+              const b = document.querySelector('[data-slot="proxy-test-fab"]')
+              if (!m || !b) return null
+              const r = m.getBoundingClientRect()
+              return { top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), fabW: Math.round(b.getBoundingClientRect().width) }
+            })()`)
+            if (s) samples.push(s)
+          }
+          if (!samples.length) {
+            console.log('[fab-hover] khong thay [role=menu] — popover khong mo?')
+            return
+          }
+          const span = (k: 'top' | 'left' | 'w' | 'h' | 'fabW'): number => {
+            const v = samples.map((s) => s[k])
+            return Math.max(...v) - Math.min(...v)
+          }
+          console.log(
+            `[fab-hover] ${samples.length} mau | popover top lech ${span('top')}px, left lech ${span('left')}px, w lech ${span('w')}px | FAB w lech ${span('fabW')}px => ${span('top') + span('left') + span('w') === 0 ? 'KHONG GIAT' : 'VAN GIAT'}`
+          )
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const file = join(dir, `shot-fab-hover-${Date.now()}.png`)
+          writeFileSync(file, img.toPNG())
+          console.log(`[fab-hover] anh: ${file}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 7000))
     })
   }
 
@@ -775,7 +1103,39 @@ process.on('unhandledRejection', (reason) => ghiCrashLog('unhandledRejection', r
 
 startHealthLoop({ everyMs: 45000, concurrency: 4 })
 
+
+// ---------- Che do TU DONG: khoi dong lai vong hen gio theo cai dat da luu ----------
+setAutoNotifier(
+  (msg) => {
+    try {
+      broadcast('log:line', { at: new Date().toISOString(), level: 'info', msg: `[tu dong] ${msg}` } as never)
+    } catch {
+      /* bo qua */
+    }
+  },
+  () => {
+    try {
+      broadcast('auto:changed', autoStatus() as never)
+    } catch {
+      /* bo qua */
+    }
+  }
+)
+startAutoLoop()
 // Nguoi dung bam X dong cua so trinh duyet -> phat hien trong ~8s va cap nhat lai bang
+
+// Watchdog hang doi: 1 acc co lenh cho ma khong co job nao chay -> chay tiep; treo qua 15 phut -> bo va ghi log
+setTimeout(() => watchdogQueues(), 20_000)
+setInterval(() => {
+  try {
+    const r = watchdogQueues()
+    if (r.pumped.length || r.dropped.length) {
+      console.log(`[queue] watchdog: chay tiep ${r.pumped.length}, bo lenh treo ${r.dropped.length}${r.dropped.length ? ` (${r.dropped.join('; ')})` : ''}`)
+    }
+  } catch (e) {
+    console.error('[queue] watchdog loi', e)
+  }
+}, 30_000)
 setInterval(() => {
   void verifyRunningBrowsers(loadStore().profiles)
     .then((closed) => {
@@ -861,6 +1221,7 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
       onQueue: () => broadcast('run:queue', queueView())
     })
   })
+  ipcMain.handle('run:clearQueue', (_e, profileId?: string) => clearQueue(profileId))
   ipcMain.handle('run:stop', (_e, id) => {
     const res = stopRun(id)
     broadcast('run:status', { profileId: id, running: false })
@@ -912,6 +1273,22 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:set', (_e, patch) => setSettings(patch ?? {}))
 
+  // ---------- IPC: che do TU DONG ----------
+  ipcMain.handle('auto:status', () => autoStatus())
+  ipcMain.handle('auto:setEvery', (_e, ms: number) => setAutoEvery(Number(ms) || 0))
+  ipcMain.handle('auto:runNow', () => runAutoCycle('chạy ngay từ UI'))
+  ipcMain.handle('auto:stop', () => {
+    stopAutoNow()
+    return autoStatus()
+  })
+  ipcMain.handle('auto:escalations', () => listEscalations())
+  ipcMain.handle('auto:pending', () => {
+    const out: Record<string, string[]> = {}
+    for (const p of loadStore().profiles) out[p.id] = pendingTasks(p)
+    return out
+  })
+  ipcMain.handle('auto:pickClean', (_e, n?: number) => pickCleanProxies(n ?? 3))
+
   // ---------- IPC: dien thoai (adb) ----------
   ipcMain.handle('phone:list', async (_e, force?: boolean) => (force ? detectPhoneApps() : getPhoneSnapshot()))
   ipcMain.handle('phone:detect', () => detectPhoneApps())
@@ -936,6 +1313,22 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   /** Mo form dang nhap Microsoft, dien san email acc ke tiep */
   ipcMain.handle('phone:signin', (_e, { serial, email }: { serial: string; email?: string | null }) =>
     startSignIn(serial, email ?? null)
+  )
+  /** Doc trang tai khoan Bing app: acc dang dang nhap + danh sach acc da luu tren may */
+  ipcMain.handle('phone:accounts', (_e, { serial }: { serial: string }) => readAccountPage(serial))
+  /** Chuyen acc tren dien thoai (chon tu danh sach da luu — khong can mat khau) */
+  ipcMain.handle('phone:switch', (_e, { serial, email }: { serial: string; email: string }) =>
+    switchToAccount(serial, email)
+  )
+  /** Chay ca danh sach: chuyen acc -> diem danh tung acc, phat su kien tien do */
+  ipcMain.handle(
+    'phone:autoCheckin',
+    async (e, { serial, targets }: { serial: string; targets: { email: string; name?: string }[] }) => {
+      const rows = await autoCheckInAll(serial, targets, (row, index, total) => {
+        e.sender.send('phone:autoProgress', { row, index, total })
+      })
+      return rows
+    }
   )
 
   // ---------- IPC: do trinh duyet tren may ----------
@@ -1032,5 +1425,37 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
 })
 
 app.on('window-all-closed', () => {
+  ghiCrashLog('window-all-closed', new Error('tat ca cua so da dong -> app.quit() (day la nguyen nhan pho bien khien phien dev ket thuc)'))
   if (process.platform !== 'darwin') app.quit()
 })
+
+// ---------- Chan doan crash: ghi lai MOI duong thoat de biet app chet vi cai gi ----------
+// Truoc 2026-10-16: app "tu crash" nhung crash.log KHONG co dong nao, WER cung khong co
+// => process bi ket thuc tu ben ngoai (dong cua so / bi kill / phien dev chet), khong phai loi code.
+app.on('child-process-gone', (_e, details) => {
+  ghiCrashLog('child-process-gone', new Error(JSON.stringify(details)))
+})
+app.on('render-process-gone', (_e, _wc, details) => {
+  ghiCrashLog('render-process-gone', new Error(JSON.stringify(details)))
+})
+app.on('before-quit', () => {
+  ghiCrashLog('before-quit', new Error('ung dung dang thoat (nguoi dung dong cua so / Ctrl+C / app.quit)'))
+})
+process.on('exit', (code) => {
+  ghiCrashLog('exit', new Error(`process thoat voi code=${code}`))
+})
+
+// Nhip tim: ghi de 1 file moi 2 phut. App chet dot ngot thi file nay dung truoc dong log cuoi.
+function nhipTim(): void {
+  try {
+    const m = process.memoryUsage()
+    const line =
+      `${new Date().toISOString()} pid=${process.pid} rss=${Math.round(m.rss / 1048576)}MB ` +
+      `heap=${Math.round(m.heapUsed / 1048576)}MB uptime=${Math.round(process.uptime() / 60)}ph\n`
+    writeFileSync(join(app.getPath('userData'), 'heartbeat.txt'), line, 'utf8')
+  } catch {
+    /* bo qua */
+  }
+}
+nhipTim()
+setInterval(nhipTim, 2 * 60 * 1000)

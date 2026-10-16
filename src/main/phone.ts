@@ -13,6 +13,33 @@ import { adb } from './adb'
 
 const WEBVIEW_PREFIX = 'webview_devtools_remote_'
 
+/**
+ * Bo dau + lowercase de so khop text trong dump uiautomator.
+ * BAY: dump tra ve Unicode dang NFD ("Cài đặt" = c + a + dau + ...) nen so khop chuoi tho hay bi truot.
+ */
+export function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim()
+}
+
+/** Cac node text + toa do trong dump. */
+function textNodes(xml: string): { text: string; x: number; y: number }[] {
+  const out: { text: string; x: number; y: number }[] = []
+  for (const m of xml.matchAll(/<node[^>]*text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)) {
+    out.push({
+      text: m[1],
+      x: Math.round((Number(m[2]) + Number(m[4])) / 2),
+      y: Math.round((Number(m[3]) + Number(m[5])) / 2)
+    })
+  }
+  return out
+}
+
 /** Doc cay UI cua man hinh hien tai (retry vi uiautomator hay tra rong khi UI dang animate). */
 export async function dumpUi(serial: string, attempts = 5): Promise<string> {
   for (let i = 0; i < attempts; i += 1) {
@@ -24,16 +51,13 @@ export async function dumpUi(serial: string, attempts = 5): Promise<string> {
   return ''
 }
 
-/** Tap vao node co text (hoac content-desc) khop chinh xac. */
-export async function tapByText(serial: string, text: string): Promise<boolean> {
+/** Tap vao node co text (hoac content-desc) khop — so sanh BO DAU de khong truot vi NFD. */
+export async function tapByText(serial: string, text: string, fuzzy = false): Promise<boolean> {
   const xml = await dumpUi(serial)
-  const esc = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const re = new RegExp(`<node[^>]*(?:text|content-desc)="${esc}"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`)
-  const m = xml.match(re)
-  if (!m) return false
-  const x = Math.round((Number(m[1]) + Number(m[3])) / 2)
-  const y = Math.round((Number(m[2]) + Number(m[4])) / 2)
-  await adb(['-s', serial, 'shell', 'input', 'tap', String(x), String(y)], 10000)
+  const want = norm(text)
+  const hit = textNodes(xml).find((n) => (fuzzy ? norm(n.text).includes(want) : norm(n.text) === want))
+  if (!hit) return false
+  await adb(['-s', serial, 'shell', 'input', 'tap', String(hit.x), String(hit.y)], 10000)
   return true
 }
 
@@ -81,46 +105,54 @@ export async function openRewardsCdp(
   user: number,
   basePort = 9601
 ): Promise<{ ok: boolean; port?: number; pid?: number; error?: string }> {
-  // 1. Mo app
+  // 1. Dua app ve TRANG CHU that su: sau khi chuyen acc app dang o trang tai khoan nen the "Rewards" khong co.
+  //    force-stop roi mo lai la cach chac chan nhat (khong xoa du lieu gi cua app).
+  await adb(['-s', serial, 'shell', 'am', 'force-stop', 'com.microsoft.bing'], 15000)
+  await new Promise((res) => setTimeout(res, 2500))
   await launchBing(serial, user)
-  await new Promise((res) => setTimeout(res, 6000))
+  await new Promise((res) => setTimeout(res, 8000))
 
-  // 2. Bam the "Rewards" o trang chu (thu vai lan, app co the dang o man hinh khac)
-  for (let i = 0; i < 3; i += 1) {
-    if (await tapByText(serial, 'Rewards')) break
+  // 2. Bam the "Rewards" o trang chu (thu vai lan, so khop bo dau)
+  for (let i = 0; i < 4; i += 1) {
+    if (await tapByText(serial, 'Rewards', true)) break
     await new Promise((res) => setTimeout(res, 3000))
   }
-  await new Promise((res) => setTimeout(res, 6000))
+  await new Promise((res) => setTimeout(res, 7000))
 
-  // 3. Do socket webview (pid doi theo lan chay)
-  let pid: number | null = null
+  // 3. Do socket webview (pid doi theo lan chay) — thu tu MOI NHAT truoc, bo qua socket da chet
+  const candidates: number[] = []
   for (let i = 0; i < 12; i += 1) {
     const pids = await findWebViewPids(serial)
-    if (pids.length) {
-      pid = pids[pids.length - 1]
-      break
-    }
+    for (const p of pids) if (!candidates.includes(p)) candidates.push(p)
+    if (candidates.length) break
     await new Promise((res) => setTimeout(res, 2000))
   }
-  if (!pid) return { ok: false, error: 'khong thay socket webview_devtools_remote (trang Rewards chua mo?)' }
+  if (!candidates.length) return { ok: false, error: 'khong thay socket webview_devtools_remote (trang Rewards chua mo?)' }
+  candidates.reverse()
 
-  // 4. Forward sang cong host
-  for (let port = basePort; port < basePort + 10; port += 1) {
-    await adb(['-s', serial, 'forward', '--remove', `tcp:${port}`], 8000)
-    const f = await adb(['-s', serial, 'forward', `tcp:${port}`, `localabstract:${WEBVIEW_PREFIX}${pid}`], 10000)
-    if (!f.ok) continue
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })
-      if (res.ok) {
-        const list = (await res.json()) as { url?: string }[]
-        if (list.some((t) => (t.url ?? '').includes('miniapps'))) return { ok: true, port, pid }
-        if (list.length) return { ok: true, port, pid } // co target khac cung chap nhan
+  // 4. Forward sang cong host va kiem tra target song
+  let port = basePort
+  for (const pid of candidates) {
+    for (let p = port; p < basePort + 12; p += 1) {
+      await adb(['-s', serial, 'forward', '--remove', `tcp:${p}`], 8000)
+      const f = await adb(['-s', serial, 'forward', `tcp:${p}`, `localabstract:${WEBVIEW_PREFIX}${pid}`], 10000)
+      if (!f.ok) continue
+      try {
+        const res = await fetch(`http://127.0.0.1:${p}/json/list`, { signal: AbortSignal.timeout(3000) })
+        if (res.ok) {
+          const list = (await res.json()) as { url?: string }[]
+          if (list.some((t) => (t.url ?? '').includes('miniapps'))) return { ok: true, port: p, pid }
+          if (list.length) {
+            // socket song nhung chua phai mini-app Rewards -> ghi nho lam phuong an du phong
+            port = p + 1
+          }
+        }
+      } catch {
+        /* socket chet -> thu pid khac */
       }
-    } catch {
-      /* thu cong khac */
     }
   }
-  return { ok: false, error: `forward duoc pid ${pid} nhung khong mo duoc CDP` }
+  return { ok: false, error: 'co socket webview nhung khong mo duoc CDP trang Rewards' }
 }
 
 export type PhoneRewards = {
@@ -283,19 +315,20 @@ async function openAccountSettings(serial: string): Promise<boolean> {
   await new Promise((r) => setTimeout(r, 6000))
   await adb(['-s', serial, 'shell', 'input', 'tap', String(AVATAR.x), String(AVATAR.y)], 10000)
   await new Promise((r) => setTimeout(r, 3500))
-  if (!(await tapByText(serial, 'Cài đặt'))) return false
+  if (!(await tapByText(serial, 'Cai dat', true))) return false
   await new Promise((r) => setTimeout(r, 3500))
   const xml = await dumpUi(serial)
-  return /Cài đặt|Tài khoản|Tài khoản/.test(xml)
+  return norm(xml).includes('tai khoan')
 }
 
 /** Dang xuat acc hien tai: avatar -> Cai dat -> Dang xuat (1 tap, khong co dialog xac nhan). */
 export async function signOutBing(serial: string): Promise<{ ok: boolean; error?: string }> {
   if (!(await openAccountSettings(serial))) return { ok: false, error: 'khong mo duoc man hinh Cai dat cua Bing app' }
-  if (!(await tapByText(serial, 'Đăng xuất'))) return { ok: false, error: 'khong thay nut Dang xuat' }
+  if (!(await tapByText(serial, 'Dang xuat', true))) return { ok: false, error: 'khong thay nut Dang xuat' }
   await new Promise((r) => setTimeout(r, 5000))
   const xml = await dumpUi(serial)
-  const ok = /Đăng nhập/.test(xml) && !/Đăng xuất/.test(xml)
+  const flat = norm(xml)
+  const ok = flat.includes('dang nhap') && !flat.includes('dang xuat')
   await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
   await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
   return ok ? { ok: true } : { ok: false, error: 'bam Dang xuat nhung man hinh chua doi sang Dang nhap' }
@@ -307,7 +340,7 @@ export async function signOutBing(serial: string): Promise<{ ok: boolean; error?
  */
 export async function startSignIn(serial: string, email?: string | null): Promise<{ ok: boolean; typedEmail?: boolean; error?: string }> {
   if (!(await openAccountSettings(serial))) return { ok: false, error: 'khong mo duoc Cai dat' }
-  if (!(await tapByText(serial, 'Đăng nhập'))) return { ok: false, error: 'khong thay nut Dang nhap' }
+  if (!(await tapByText(serial, 'Dang nhap', true))) return { ok: false, error: 'khong thay nut Dang nhap' }
   await new Promise((r) => setTimeout(r, 6000))
   let typedEmail = false
   if (email && /^[\w.+-]+@[\w.-]+\.\w+$/.test(email)) {
@@ -324,6 +357,171 @@ export async function startSignIn(serial: string, email?: string | null): Promis
     }
   }
   return { ok: true, typedEmail }
+}
+
+export type AccountPage = {
+  ok: boolean
+  /** Acc dang dang nhap theo trang tai khoan (neu co) */
+  signedInEmail: string | null
+  signedInName: string | null
+  /** Danh sach acc DA LUU tren may (chon 1 tap la vao, khong can mat khau) */
+  accounts: { name: string; email: string }[]
+  canAddAccount: boolean
+  raw: string
+  error?: string
+}
+
+/** Mo trang Cai dat cua Bing app: avatar -> Cai dat (so khop bo dau). */
+async function openSettingsPage(serial: string): Promise<string> {
+  await launchBing(serial, 0)
+  await new Promise((r) => setTimeout(r, 6000))
+  await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
+  await new Promise((r) => setTimeout(r, 1500))
+
+  let xml = ''
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await adb(['-s', serial, 'shell', 'input', 'tap', String(AVATAR.x), String(AVATAR.y)], 10000)
+    await new Promise((r) => setTimeout(r, 3500))
+    if (!(await tapByText(serial, 'Cai dat', true))) {
+      await adb(['-s', serial, 'shell', 'input', 'tap', String(AVATAR.x), String(AVATAR.y)], 10000)
+      await new Promise((r) => setTimeout(r, 3500))
+      await tapByText(serial, 'Cai dat', true)
+    }
+    await new Promise((r) => setTimeout(r, 4000))
+    xml = await dumpUi(serial)
+    if (norm(xml).includes('tong quat') || norm(xml).includes('tai khoan microsoft')) return xml
+  }
+  return xml
+}
+
+/** Nut o hang "Tai khoan Microsoft" trong trang Cai dat (doi giua Dang xuat / Dang nhap). */
+const ACCT_BTN = { x: 890, y: 425 }
+
+/**
+ * Mo DANH SACH ACC DA LUU tren may ("Chon mot tai khoan de dang nhap").
+ * Chuoi da kiem chung 2026-10-15: Cai dat -> nut hang tai khoan (neu dang dang nhap thi bam = dang xuat)
+ * -> bam lai nut do (= Dang nhap) -> hien danh sach acc da luu, chon 1 tap la vao, KHONG can mat khau.
+ */
+async function openAccountList(serial: string): Promise<string> {
+  let xml = await openSettingsPage(serial)
+  if (norm(xml).includes('dang xuat')) {
+    await adb(['-s', serial, 'shell', 'input', 'tap', String(ACCT_BTN.x), String(ACCT_BTN.y)], 10000)
+    await new Promise((r) => setTimeout(r, 6000))
+    xml = await dumpUi(serial)
+  }
+  if (!norm(xml).includes('chon mot tai khoan')) {
+    await adb(['-s', serial, 'shell', 'input', 'tap', String(ACCT_BTN.x), String(ACCT_BTN.y)], 10000)
+    await new Promise((r) => setTimeout(r, 7000))
+    xml = await dumpUi(serial)
+  }
+  return xml
+}
+
+/** Doc acc dang dang nhap (panel avatar) + danh sach acc da luu tren may. */
+export async function readAccountPage(serial: string): Promise<AccountPage> {
+  const fail: AccountPage = { ok: false, signedInEmail: null, signedInName: null, accounts: [], canAddAccount: false, raw: '' }
+  const cur = await readSignedInAccount(serial, 0)
+  const xml = await openAccountList(serial)
+  if (!xml) return { ...fail, error: 'khong doc duoc trang tai khoan' }
+
+  const nodes = textNodes(xml)
+  const accounts: { name: string; email: string }[] = []
+  for (let i = 0; i < nodes.length; i += 1) {
+    if (/^[\w.+-]+@[\w.-]+\.\w+$/.test(nodes[i].text)) {
+      const email = nodes[i].text
+      if (!accounts.some((a) => a.email === email)) accounts.push({ name: nodes[i - 1]?.text ?? '', email })
+    }
+  }
+  return {
+    ok: accounts.length > 0 || nodes.some((n) => norm(n.text).includes('chon mot tai khoan')),
+    signedInEmail: cur.email,
+    signedInName: cur.name,
+    accounts,
+    canAddAccount: nodes.some((n) => norm(n.text).includes('them tai khoan')),
+    raw: nodes.slice(0, 20).map((n) => n.text).join(' | ')
+  }
+}
+
+/**
+ * Chuyen acc: mo danh sach acc da luu -> bam dung email -> xac nhan "Da dang nhap voi tu cach".
+ * Acc phai co trong danh sach da luu (them 1 lan bang "Them tai khoan" tren may la du).
+ */
+export async function switchToAccount(serial: string, email: string): Promise<{ ok: boolean; error?: string }> {
+  const xml = await openAccountList(serial)
+  const node = textNodes(xml).find((n) => norm(n.text) === norm(email))
+  if (!node) {
+    await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
+    const have = textNodes(xml)
+      .filter((n) => /^[\w.+-]+@/.test(n.text))
+      .map((n) => n.text)
+    return {
+      ok: false,
+      error: `acc ${email} chua co trong danh sach da luu tren may${have.length ? ` (may co: ${have.join(', ')})` : ''}`
+    }
+  }
+  await adb(['-s', serial, 'shell', 'input', 'tap', String(node.x), String(node.y)], 10000)
+  await new Promise((r) => setTimeout(r, 8000))
+
+  const after = await dumpUi(serial)
+  const flat = norm(after)
+  const ok = flat.includes('da dang nhap voi tu cach') || textNodes(after).some((n) => norm(n.text) === norm(email))
+  await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
+  await adb(['-s', serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK'], 8000)
+  return ok ? { ok: true } : { ok: false, error: 'bam acc nhung chua thay xac nhan dang nhap' }
+}
+
+export type AutoCheckInRow = {
+  email: string
+  name?: string
+  ok: boolean
+  switched: boolean
+  gained: number
+  alreadyDone: boolean
+  points: number | null
+  error?: string
+}
+
+/**
+ * Chay ca danh sach: voi moi email -> chuyen acc tren dien thoai -> diem danh -> ghi ket qua.
+ * onProgress duoc goi sau moi acc de UI cap nhat.
+ */
+export async function autoCheckInAll(
+  serial: string,
+  targets: { email: string; name?: string }[],
+  onProgress?: (row: AutoCheckInRow, index: number, total: number) => void
+): Promise<AutoCheckInRow[]> {
+  const out: AutoCheckInRow[] = []
+  for (let i = 0; i < targets.length; i += 1) {
+    const t = targets[i]
+    const row: AutoCheckInRow = {
+      email: t.email,
+      name: t.name,
+      ok: false,
+      switched: false,
+      gained: 0,
+      alreadyDone: false,
+      points: null
+    }
+    try {
+      const sw = await switchToAccount(serial, t.email)
+      row.switched = sw.ok
+      if (!sw.ok) {
+        row.error = sw.error
+      } else {
+        const res = await checkInCurrentBingAccount(serial, 0)
+        row.ok = res.ok
+        row.gained = res.gained
+        row.alreadyDone = res.alreadyDone
+        row.points = res.pointsAfter
+        row.error = res.error
+      }
+    } catch (e) {
+      row.error = String((e as Error).message).slice(0, 150)
+    }
+    out.push(row)
+    onProgress?.(row, i + 1, targets.length)
+  }
+  return out
 }
 
 export type CheckInResult = {

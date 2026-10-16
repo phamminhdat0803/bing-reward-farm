@@ -114,6 +114,54 @@ const api = {
   /** Mở form đăng nhập Microsoft và điền sẵn email acc kế tiếp */
   signInPhone: (serial: string, email?: string | null): Promise<{ ok: boolean; typedEmail?: boolean; error?: string }> =>
     ipcRenderer.invoke('phone:signin', { serial, email: email ?? null }),
+  /** Đọc trang tài khoản Bing app: acc đang đăng nhập + danh sách acc ĐÃ LƯU trên máy (chuyển 1 tap, không cần mật khẩu) */
+  listPhoneAccounts: (
+    serial: string
+  ): Promise<{
+    ok: boolean
+    signedInEmail: string | null
+    signedInName: string | null
+    accounts: { name: string; email: string }[]
+    canAddAccount: boolean
+    raw: string
+    error?: string
+  }> => ipcRenderer.invoke('phone:accounts', { serial }),
+  /** Chuyển acc trên điện thoại bằng cách chọn trong danh sách đã lưu */
+  switchPhoneAccount: (serial: string, email: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('phone:switch', { serial, email }),
+  /** Chạy cả danh sách: chuyển acc → điểm danh từng acc */
+  autoCheckInPhone: (
+    serial: string,
+    targets: { email: string; name?: string }[]
+  ): Promise<
+    {
+      email: string
+      name?: string
+      ok: boolean
+      switched: boolean
+      gained: number
+      alreadyDone: boolean
+      points: number | null
+      error?: string
+    }[]
+  > => ipcRenderer.invoke('phone:autoCheckin', { serial, targets }),
+  /** Tiến độ chạy tự động (1 sự kiện / acc) */
+  onPhoneAutoProgress: (
+    cb: (p: {
+      row: { email: string; name?: string; ok: boolean; switched: boolean; gained: number; alreadyDone: boolean; points: number | null; error?: string }
+      index: number
+      total: number
+    }) => void
+  ): (() => void) => {
+    type Progress = {
+      row: { email: string; name?: string; ok: boolean; switched: boolean; gained: number; alreadyDone: boolean; points: number | null; error?: string }
+      index: number
+      total: number
+    }
+    const h = (_e: Electron.IpcRendererEvent, p: Progress): void => cb(p)
+    ipcRenderer.on('phone:autoProgress', h)
+    return () => ipcRenderer.removeListener('phone:autoProgress', h)
+  },
   /** Chỉ đọc trạng thái Rewards của acc đang đăng nhập */
   readPhone: (
     serial: string,
@@ -138,13 +186,50 @@ const api = {
     ipcRenderer.invoke('rewards:refresh', ids),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
   setSettings: (patch: Partial<AppSettings>): Promise<AppSettings> => ipcRenderer.invoke('settings:set', patch),
+
+  // ---------- Che do tu dong ----------
+  /** Trang thai che do tu dong: chu ky, vong da chay, lan chay toi, so lan xu ly proxy */
+  autoStatus: (): Promise<{
+    date: string
+    cycles: number
+    lastCycleAt: string | null
+    lastCycleResult: string | null
+    running: boolean
+    nextAt: string | null
+    remediations: number
+    everyMs: number
+    enabled: boolean
+  }> => ipcRenderer.invoke('auto:status'),
+  /** Dat chu ky tu dong (ms; 0 = tat) */
+  autoSetEvery: (ms: number): Promise<{ everyMs: number; enabled: boolean; nextAt: string | null }> =>
+    ipcRenderer.invoke('auto:setEvery', ms),
+  /** Chay 1 vong ngay */
+  autoRunNow: (): Promise<{ cycles: number; detail: string[] }> => ipcRenderer.invoke('auto:runNow'),
+  /** Dung hen gio */
+  autoStop: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke('auto:stop'),
+  /** Danh sach ho so can agent phan tich (task khong len diem sau 3 lan) */
+  autoEscalations: (): Promise<
+    { file: string; profile: string; task: string; tries: number; at: string; summary: string }[]
+  > => ipcRenderer.invoke('auto:escalations'),
+  /** Task con thieu cua tung acc (theo so lieu da luu) */
+  autoPending: (): Promise<Record<string, string[]>> => ipcRenderer.invoke('auto:pending'),
+  /** Chon N proxy sach (da test OK, ping thap, chua acc nao dung) */
+  autoPickClean: (n = 3): Promise<{ id: string; label: string; latency: number | null }[]> =>
+    ipcRenderer.invoke('auto:pickClean', n),
+  onAutoChanged: (
+    cb: (s: { cycles: number; running: boolean; nextAt: string | null; enabled: boolean; everyMs: number }) => void
+  ): (() => void) => {
+    type AutoEvent = { cycles: number; running: boolean; nextAt: string | null; enabled: boolean; everyMs: number }
+    const h = (_e: Electron.IpcRendererEvent, s: AutoEvent): void => cb(s)
+    ipcRenderer.on('auto:changed', h)
+    return () => ipcRenderer.removeListener('auto:changed', h)
+  },
   onRefreshProgress: (cb: (p: RefreshProgress) => void): (() => void) => {
     const handler = (_e: unknown, p: RefreshProgress): void => cb(p)
     ipcRenderer.on('refresh:progress', handler)
     return () => ipcRenderer.removeListener('refresh:progress', handler)
   },
-  onRefreshDone: (cb: () => void): (() => void) => {
-    const handler = (): void => cb()
+  onRefreshDone: (cb: () => void): (() => void) => {    const handler = (): void => cb()
     ipcRenderer.on('refresh:done', handler)
     return () => ipcRenderer.removeListener('refresh:done', handler)
   },
@@ -152,6 +237,8 @@ const api = {
   startRun: (id: string, kinds: string[]): Promise<{ ok: boolean; runId?: string; error?: string }> =>
     ipcRenderer.invoke('run:start', { id, kinds }),
   stopRun: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('run:stop', id),
+  /** Xoá lệnh chờ (1 acc hoặc tất cả) — dùng khi badge "N lệnh chờ" bị treo */
+  clearQueue: (profileId?: string): Promise<{ cleared: number }> => ipcRenderer.invoke('run:clearQueue', profileId),
   runState: (id: string): Promise<{ running: boolean; kinds: string[]; log: LogLine[] }> =>
     ipcRenderer.invoke('run:state', id),
 

@@ -17,7 +17,7 @@ import { dayRecord, loadState, rememberQuery, saveState, todayKey, usedQuerySet 
 import { DEFAULTS, type CoreConfig, type Logger, type LogLine, type SearchProgress } from './core/types'
 import { browserState, closeBrowser, markRun } from './browsers'
 import { withProfileLock } from './lock'
-import { logDir, stateFile, updateProfile, type Profile } from './profiles'
+import { getProfile, logDir, stateFile, updateProfile, type Profile } from './profiles'
 import { clearActiveChain, preflightChain, resolveProxyChain, resolveProxyUrl, setActiveChain } from './proxies'
 import { getSettings } from './settings'
 
@@ -77,10 +77,10 @@ type RunHooks = {
   onProgress?: (p: SearchProgress & { profileId: string }) => void
   onQueue?: (q: QueueView) => void
 }
-type PendingRun = { profile: Profile; kinds: string[]; hooks: RunHooks }
+type PendingRun = { profile: Profile; kinds: string[]; hooks: RunHooks; queuedAt: number }
 export type QueueView = {
   /** Acc dang chay + so lenh dang cho cua CHINH acc do */
-  items: { profileId: string; name: string; pending: number }[]
+  items: { profileId: string; name: string; pending: number; oldestWaitMs?: number }[]
   /** Acc phai cho slot vi cham gioi han TONG (chi khi maxParallelRuns > 0) */
   waiting: { profileId: string; name: string; position: number }[]
   max: number
@@ -93,9 +93,15 @@ let pumping = false
 /** Hang doi theo tung acc (acc co lenh dang cho). */
 export function queueState(): QueueView['items'] {
   const out: QueueView['items'] = []
+  const now = Date.now()
   for (const [id, list] of pendingByProfile) {
     if (list.length === 0) continue
-    out.push({ profileId: id, name: list[0].profile.name, pending: list.length })
+    out.push({
+      profileId: id,
+      name: list[0].profile.name,
+      pending: list.length,
+      oldestWaitMs: now - list[0].queuedAt
+    })
   }
   return out
 }
@@ -124,11 +130,72 @@ function pumpProfile(profileId: string): void {
   const next = list?.shift()
   if (!next) {
     pendingByProfile.delete(profileId)
+    notifyQueue() // BUG 2026-10-16: truoc day khong phat su kien -> UI giu badge "1 lenh cho" mai
     return
   }
   if (list && list.length === 0) pendingByProfile.delete(profileId)
   console.log('[queue] ' + next.profile.name + ': chay lenh ke tiep cua cung acc (con ' + (list?.length ?? 0) + ')')
-  void startRunNow(next.profile, next.kinds, next.hooks)
+  void startRunNow(next.profile, next.kinds, next.hooks).finally(() => notifyQueue())
+  notifyQueue()
+}
+
+/**
+ * Watchdog hang doi (2026-10-16): neu 1 acc co lenh cho ma KHONG co job nao chay -> chay tiep;
+ * neu lenh cho treo qua lau (mac dinh 15 phut) thi bo va ghi log, tranh "treo 1 lenh mai".
+ */
+export function watchdogQueues(maxAgeMs = 15 * 60 * 1000): { pumped: string[]; dropped: string[] } {
+  const pumped: string[] = []
+  const dropped: string[] = []
+  const now = Date.now()
+  for (const [id, list] of Array.from(pendingByProfile.entries())) {
+    if (!list.length) {
+      pendingByProfile.delete(id)
+      continue
+    }
+    if (jobs.has(id)) continue // acc dang chay -> de no tu pump khi xong
+    const stale = list.filter((p) => now - p.queuedAt > maxAgeMs)
+    if (stale.length) {
+      const keep = list.filter((p) => now - p.queuedAt <= maxAgeMs)
+      if (keep.length) pendingByProfile.set(id, keep)
+      else pendingByProfile.delete(id)
+      dropped.push(`${list[0].profile.name} (${stale.length} lệnh chờ > ${Math.round(maxAgeMs / 60000)} phút)`)
+      console.log(`[queue] BO ${stale.length} lenh cho treo cua ${list[0].profile.name}`)
+      notifyQueue()
+      continue
+    }
+    pumped.push(list[0].profile.name)
+    pumpProfile(id)
+  }
+  return { pumped, dropped }
+}
+
+/**
+ * CHI DUNG CHO TEST (dev hook): bom 1 lenh cho gia vao hang doi cua 1 acc de kiem tra watchdog/UI.
+ * `ageMs` = tuoi lenh cho (de gia lap lenh cho treo tu lau).
+ */
+export function debugPushPending(profileId: string, ageMs = 0, kinds: string[] = ['desktop']): boolean {
+  const p = getProfile(profileId)
+  if (!p) return false
+  const list = pendingByProfile.get(profileId) ?? []
+  list.push({ profile: p, kinds, hooks: {}, queuedAt: Date.now() - ageMs })
+  pendingByProfile.set(profileId, list)
+  notifyQueue()
+  return true
+}
+
+/** Xoa lenh cho (1 acc hoac tat ca) — dung khi UI thay 1 lenh cho bi treo. */
+export function clearQueue(profileId?: string): { cleared: number } {  let n = 0
+  if (profileId) {
+    n = pendingByProfile.get(profileId)?.length ?? 0
+    pendingByProfile.delete(profileId)
+  } else {
+    for (const [, list] of pendingByProfile) n += list.length
+    pendingByProfile.clear()
+    n += waitingGlobal.length
+    waitingGlobal.length = 0
+  }
+  notifyQueue()
+  return { cleared: n }
 }
 
 /** Chay tiep cac acc dang cho SLOT (chi khi co gioi han tong). */
@@ -403,7 +470,7 @@ export async function startRun(
   // (Truoc day bao loi 'dang chay'; nay chap nhan xep hang de chay lan luot.)
   if (jobs.has(profile.id)) {
     const list = pendingByProfile.get(profile.id) ?? []
-    list.push({ profile, kinds, hooks })
+    list.push({ profile, kinds, hooks, queuedAt: Date.now() })
     pendingByProfile.set(profile.id, list)
     const position = list.length
     console.log('[queue] ' + profile.name + ': xep lenh thu ' + position + ' cho cung acc (acc dang chay)')
@@ -419,7 +486,7 @@ export async function startRun(
   // Gioi han TONG (tuy chon) -> phai cho slot
   const cap = Math.max(0, getSettings().maxParallelRuns ?? 0)
   if (cap > 0 && jobs.size >= cap) {
-    waitingGlobal.push({ profile, kinds, hooks })
+    waitingGlobal.push({ profile, kinds, hooks, queuedAt: Date.now() })
     const position = waitingGlobal.length
     console.log('[queue] ' + profile.name + ' cho slot (dang chay ' + jobs.size + '/' + cap + ')')
     hooks.onLine?.({

@@ -3,10 +3,8 @@ import { toast } from 'sonner'
 import {
   BatteryCharging,
   Check,
-  ChevronRight,
-  Info,
-  LogIn,
-  LogOut,
+  CircleAlert,
+  Play,
   RefreshCw,
   Smartphone,
   UserCheck,
@@ -18,132 +16,173 @@ import { Button } from '@renderer/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
 import type { PhoneSnapshot, RowState } from '@shared/types'
 
-type Account = {
-  signedIn: boolean
-  email: string | null
-  name: string | null
-  points: number | null
-  todayPoints: string | null
-  streak: string | null
-  raw: string
-  error?: string
-}
-
+type Cached = { name: string; email: string }
 type Result = {
   ok: boolean
   gained: number
   alreadyDone: boolean
-  pointsBefore: number | null
-  pointsAfter: number | null
-  todayPoints: string | null
-  streak: string | null
+  points: number | null
+  switched: boolean
   error?: string
-  at: string
 }
 
 /**
- * Tab "Điện thoại" — kịch bản chốt 2026-10-15 (bỏ bind app↔acc, bỏ yêu cầu tự chuyển acc):
- *   App TỰ ĐỌC acc đang đăng nhập trong Bing app (panel avatar có email) → điểm danh cho acc đó →
- *   ghi kết quả vào ĐÚNG dòng theo email → bấm "Đăng xuất & sang acc kế" để app tự đăng xuất và
- *   điền sẵn email acc kế vào form Microsoft (người dùng chỉ nhập mật khẩu).
+ * Tab "Điện thoại" — flow chốt 2026-10-15 (sau khi phát hiện Bing app có sẵn DANH SÁCH ACC ĐÃ LƯU):
+ *   Chuyển acc = bấm chọn trong "Chọn một tài khoản để đăng nhập" — KHÔNG cần mật khẩu.
+ *   Vì vậy app chạy trọn danh sách: chuyển acc → điểm danh → acc kế → … tự động.
+ *   Không bind app vào acc; kết quả ghi vào dòng theo EMAIL.
  */
 export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null)
-  const [acct, setAcct] = useState<Account | null>(null)
+  const [cached, setCached] = useState<Cached[] | null>(null)
+  const [signedIn, setSignedIn] = useState<{ name: string | null; email: string | null } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, Result>>({})
-  const [queueIdx, setQueueIdx] = useState(0)
+  const [log, setLog] = useState<string[]>([])
 
   const loadSnap = async (force = false): Promise<void> => {
     setSnap(force ? await window.api.detectPhoneApps() : await window.api.listPhoneApps(false))
   }
 
   useEffect(() => {
-    void loadSnap(false)
+    // Do THAT khi mo tab (adb nhanh, khong mo trinh duyet) de khong hien thiet bi cu da rut
+    void loadSnap(true)
+    const off = window.api.onPhoneAutoProgress(({ row, index, total }) => {
+      setLog((l) => [
+        ...l,
+        `${index}/${total} ${row.email}: ${
+          !row.switched ? `chuyển acc lỗi (${row.error ?? ''})` : row.ok ? (row.alreadyDone ? 'đã điểm danh hôm nay' : `+${row.gained} điểm`) : `lỗi điểm danh (${row.error ?? ''})`
+        }`
+      ])
+    })
+    return off
   }, [])
 
   const device = useMemo(() => snap?.devices.find((d) => d.status === 'online') ?? snap?.devices[0] ?? null, [snap])
   const serial = device?.serial ?? ''
 
-  /** acc trong danh sách khớp email đang đăng nhập trên điện thoại */
-  const matched = useMemo(() => {
-    if (!acct?.email) return null
-    const e = acct.email.toLowerCase()
-    return (
-      rows.find((r) => (r.profile.account ?? '').toLowerCase().includes(e)) ??
-      rows.find((r) => r.profile.name.toLowerCase() === (acct.name ?? '').toLowerCase()) ??
-      null
-    )
-  }, [acct, rows])
-
-  const checkedInCount = rows.filter((r) => results[r.id]?.ok).length
-
-  /** Đọc acc đang đăng nhập trên điện thoại */
-  const readAccount = async (silent = false): Promise<Account | null> => {
-    if (!serial) {
-      if (!silent) toast.error('Chưa thấy thiết bị — cắm cáp + bật USB debugging rồi bấm Dò lại')
-      return null
+  /** email -> dòng tài khoản */
+  const byEmail = useMemo(() => {
+    const m = new Map<string, RowState>()
+    for (const r of rows) {
+      const e = (r.profile.account ?? '').toLowerCase()
+      if (e) m.set(e, r)
     }
-    setBusy('read')
-    try {
-      const a = await window.api.readPhoneAccount(serial, 0)
-      setAcct(a)
-      if (!a.signedIn) {
-        if (!silent) toast.warning('Bing app chưa đăng nhập acc nào — đăng nhập rồi bấm lại')
-      } else if (!silent) {
-        toast.success(`Đang đăng nhập: ${a.name ?? a.email} (${a.points ?? '?'} điểm)`)
-      }
-      return a
-    } finally {
-      setBusy(null)
-    }
-  }
+    return m
+  }, [rows])
 
-  /** Điểm danh cho acc đang đăng nhập, ghi vào dòng khớp email */
-  const checkIn = async (): Promise<void> => {
+  const cachedSet = useMemo(() => new Set((cached ?? []).map((c) => c.email.toLowerCase())), [cached])
+  const doneCount = rows.filter((r) => results[r.id]?.ok).length
+
+  const scan = async (): Promise<void> => {
     if (!serial) {
-      toast.error('Chưa thấy thiết bị')
+      toast.error('Chưa thấy thiết bị — cắm cáp + bật USB debugging rồi bấm Dò lại')
       return
     }
-    setBusy('checkin')
+    setBusy('scan')
     try {
-      const r = await window.api.checkInPhone(serial, 0)
-      const target = matched ?? rows[queueIdx]
-      if (target) setResults((prev) => ({ ...prev, [target.id]: { ...r, at: new Date().toISOString() } }))
-      if (!r.ok) toast.error(`Điểm danh lỗi: ${r.error ?? 'không rõ'}`)
-      else if (r.alreadyDone) toast.info(`Acc này đã điểm danh hôm nay (${r.pointsAfter ?? '?'} điểm)`)
-      else toast.success(`+${r.gained} điểm (${r.pointsBefore} → ${r.pointsAfter})${target ? ` — ghi vào “${target.profile.name}”` : ''}`)
-      // doc lai vi tri acc sau khi diem danh
-      void readAccount(true)
-    } catch (e) {
-      toast.error(String((e as Error).message).slice(0, 160))
+      const p = await window.api.listPhoneAccounts(serial)
+      if (!p.ok) {
+        toast.error(p.error ?? 'không đọc được trang tài khoản')
+        return
+      }
+      setCached(p.accounts)
+      setSignedIn({ name: p.signedInName, email: p.signedInEmail })
+      const miss = rows.filter((r) => r.profile.account && !p.accounts.some((a) => a.email.toLowerCase() === r.profile.account!.toLowerCase()))
+      toast.success(
+        `Máy có ${p.accounts.length} acc đã lưu${p.signedInEmail ? ` · đang đăng nhập ${p.signedInEmail}` : ''}${
+          miss.length ? ` · ${miss.length} acc chưa có trên máy` : ''
+        }`
+      )
     } finally {
       setBusy(null)
     }
   }
 
-  /** Đăng xuất acc hiện tại + mở form đăng nhập điền sẵn email acc kế */
-  const switchNext = async (): Promise<void> => {
+  const checkInCurrent = async (): Promise<void> => {
     if (!serial) return
-    const next = rows[queueIdx + 1] ?? rows[0]
-    setBusy('switch')
+    setBusy('one')
     try {
-      const out = await window.api.signOutPhone(serial)
-      if (!out.ok) {
-        toast.error(`Đăng xuất lỗi: ${out.error ?? 'không rõ'}`)
+      const r = await window.api.checkInPhone(serial, 0)
+      const res: Result = {
+        ok: r.ok,
+        gained: r.gained,
+        alreadyDone: r.alreadyDone,
+        points: r.pointsAfter,
+        switched: true,
+        error: r.error
+      }
+      const target = signedIn?.email ? byEmail.get(signedIn.email.toLowerCase()) : null
+      if (target) setResults((prev) => ({ ...prev, [target.id]: res }))
+      if (!r.ok) toast.error(`Điểm danh lỗi: ${r.error ?? 'không rõ'}`)
+      else if (r.alreadyDone) toast.info(`Acc đang mở đã điểm danh hôm nay (${r.pointsAfter ?? '?'} điểm)`)
+      else toast.success(`+${r.gained} điểm (${r.pointsBefore} → ${r.pointsAfter})`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Chuyển sang 1 acc cụ thể rồi điểm danh */
+  const switchAndCheckIn = async (row: RowState): Promise<void> => {
+    if (!serial) return
+    const email = row.profile.account ?? ''
+    if (!email) {
+      toast.error('Tài khoản này chưa có email — điền ở Sửa tài khoản')
+      return
+    }
+    setBusy(row.id)
+    try {
+      const sw = await window.api.switchPhoneAccount(serial, email)
+      if (!sw.ok) {
+        setResults((prev) => ({ ...prev, [row.id]: { ok: false, gained: 0, alreadyDone: false, points: null, switched: false, error: sw.error } }))
+        toast.error(`Chuyển acc lỗi: ${sw.error}`)
         return
       }
-      const si = await window.api.signInPhone(serial, next?.profile.account ?? null)
-      if (si.ok && si.typedEmail) {
-        toast.success(`Đã đăng xuất. Form đăng nhập đã điền sẵn ${next?.profile.account} — nhập mật khẩu là xong.`)
-      } else if (si.ok) {
-        toast.info(`Đã đăng xuất. Nhập email ${next?.profile.account ?? ''} + mật khẩu trên điện thoại.`)
-      } else {
-        toast.warning(`Đã đăng xuất nhưng chưa mở được form đăng nhập: ${si.error ?? ''}`)
+      const r = await window.api.checkInPhone(serial, 0)
+      const res: Result = {
+        ok: r.ok,
+        gained: r.gained,
+        alreadyDone: r.alreadyDone,
+        points: r.pointsAfter,
+        switched: true,
+        error: r.error
       }
-      if (next) setQueueIdx((i) => Math.min(i + 1, rows.length - 1))
-    } catch (e) {
-      toast.error(String((e as Error).message).slice(0, 160))
+      setResults((prev) => ({ ...prev, [row.id]: res }))
+      setSignedIn({ name: row.profile.name, email })
+      if (!r.ok) toast.error(`Điểm danh lỗi: ${r.error ?? 'không rõ'}`)
+      else if (r.alreadyDone) toast.info(`“${row.profile.name}” đã điểm danh hôm nay`)
+      else toast.success(`“${row.profile.name}”: +${r.gained} điểm (${r.pointsBefore} → ${r.pointsAfter})`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** Chạy tự động cả danh sách: chuyển acc + điểm danh từng acc một */
+  const runAll = async (): Promise<void> => {
+    if (!serial) return
+    const targets = rows
+      .filter((r) => r.profile.account)
+      .map((r) => ({ email: r.profile.account as string, name: r.profile.name }))
+    if (!targets.length) {
+      toast.error('Không có tài khoản nào có email')
+      return
+    }
+    setBusy('all')
+    setLog([`Bắt đầu chạy ${targets.length} acc…`])
+    try {
+      const out = await window.api.autoCheckInPhone(serial, targets)
+      setResults((prev) => {
+        const next = { ...prev }
+        for (const o of out) {
+          const row = byEmail.get(o.email.toLowerCase())
+          if (row) next[row.id] = { ok: o.ok, gained: o.gained, alreadyDone: o.alreadyDone, points: o.points, switched: o.switched, error: o.error }
+        }
+        return next
+      })
+      const gained = out.reduce((s, o) => s + (o.gained || 0), 0)
+      const failed = out.filter((o) => !o.switched || !o.ok).length
+      if (failed) toast.warning(`Xong: +${gained} điểm · ${failed} acc lỗi (xem log bên dưới)`)
+      else toast.success(`Xong cả ${out.length} acc: +${gained} điểm`)
     } finally {
       setBusy(null)
     }
@@ -153,10 +192,29 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Hàng 1: thiết bị */}
+      {/* Hàng 1: thiết bị + hành động chính */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
+        <Button size="sm" className="gap-1.5" disabled={!serial || anyBusy} onClick={() => void scan()}>
+          <UserCheck className={busy === 'scan' ? 'size-3.5 animate-spin' : 'size-3.5'} />
+          {busy === 'scan' ? 'Đang quét…' : 'Quét acc trên máy'}
+        </Button>
+        <Button size="sm" variant="secondary" className="gap-1.5" disabled={!serial || anyBusy} onClick={() => void checkInCurrent()}>
+          <Check className="size-3.5" /> Điểm danh acc đang mở
+        </Button>
         <Button
           size="sm"
+          variant="secondary"
+          className="gap-1.5 border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+          disabled={!serial || anyBusy}
+          onClick={() => void runAll()}
+          title="Tự chuyển acc rồi điểm danh lần lượt TẤT CẢ tài khoản có email"
+        >
+          {busy === 'all' ? <RefreshCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+          {busy === 'all' ? 'Đang chạy cả danh sách…' : 'Chạy tự động cả danh sách'}
+        </Button>
+        <Button
+          size="sm"
+          variant="tertiary"
           className="gap-1.5"
           disabled={anyBusy}
           onClick={() => {
@@ -171,21 +229,11 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
             })()
           }}
         >
-          <RefreshCw className={busy === 'detect' ? 'size-3.5 animate-spin' : 'size-3.5'} /> Dò lại thiết bị
+          <Smartphone className="size-3.5" /> Dò lại thiết bị
         </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="gap-1.5"
-          disabled={!serial || anyBusy}
-          onClick={() => void readAccount(false)}
-        >
-          <UserCheck className={busy === 'read' ? 'size-3.5 animate-spin' : 'size-3.5'} />
-          {busy === 'read' ? 'Đang đọc…' : 'Đọc acc đang mở'}
-        </Button>
+
         {device ? (
           <div className="flex items-center gap-2 rounded-[10px] border border-[var(--hairline)] px-2.5 py-1">
-            <Smartphone className="size-3.5 text-[var(--brand-blue-deep)]" />
             <span className="text-[12.5px] font-semibold">{device.model}</span>
             <span className="mm-micro">{device.serial}</span>
             {device.batteryPct != null ? (
@@ -209,86 +257,59 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
             Chưa thấy thiết bị — cắm cáp USB + bật <b>USB debugging</b> rồi bấm <b>Dò lại thiết bị</b>.
           </span>
         )}
+
         <span className="ml-auto text-[12.5px] text-[var(--stone)]">
-          Đã điểm danh: <b className="text-emerald-600">{checkedInCount}</b>/{rows.length} acc
+          Đã điểm danh: <b className="text-emerald-600">{doneCount}</b>/{rows.length} acc
         </span>
       </div>
 
-      {/* Hàng 2: acc đang đăng nhập trên điện thoại + 2 nút chính */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--hairline-soft)] bg-[var(--surface)]/50 px-3 py-2">
-        <div className="flex min-w-[280px] items-center gap-2">
-          <span className="text-[12px] font-semibold uppercase tracking-wide text-[var(--steel)]">Acc trên điện thoại</span>
-          {acct?.signedIn ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[13.5px] font-semibold">{acct.name ?? acct.email}</span>
-              <span className="mm-micro">{acct.email}</span>
-              <Badge variant="outline">{acct.points ?? '?'} điểm</Badge>
-              {acct.todayPoints ? <Badge variant="outline">hôm nay {acct.todayPoints}</Badge> : null}
-              {acct.streak ? <Badge variant="outline">chuỗi {acct.streak}</Badge> : null}
-              {matched ? (
-                <Badge variant="success" className="gap-1">
-                  <Check className="size-3" /> khớp “{matched.profile.name}”
-                </Badge>
-              ) : acct.email ? (
-                <Badge variant="warning">email này chưa có trong danh sách tài khoản</Badge>
-              ) : null}
-            </div>
-          ) : (
-            <span className="text-[12.5px] text-[var(--stone)]">
-              chưa đọc — bấm <b>Đọc acc đang mở</b> (hoặc mở Bing app rồi bấm lại)
-            </span>
-          )}
+      {snap?.error ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--hairline-soft)] bg-[#fdf2f2] px-3 py-1.5 text-[12.5px] text-[var(--error)]">
+          <CircleAlert className="size-3.5 shrink-0" />
+          <span>
+            {snap.error}
+            {snap.at ? ` · lần dò gần nhất: ${new Date(snap.at).toLocaleString('vi-VN')}` : ''}
+          </span>
         </div>
+      ) : null}
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" className="gap-1.5" disabled={!serial || anyBusy || !acct?.signedIn} onClick={() => void checkIn()}>
-            {busy === 'checkin' ? <RefreshCw className="size-3.5 animate-spin" /> : <ChevronRight className="size-3.5" />}
-            Điểm danh acc này
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="gap-1.5"
-            disabled={!serial || anyBusy || !acct?.signedIn}
-            onClick={() => void switchNext()}
-            title="Tự đăng xuất acc hiện tại và điền sẵn email acc kế vào form đăng nhập Microsoft"
-          >
-            {busy === 'switch' ? <RefreshCw className="size-3.5 animate-spin" /> : <LogOut className="size-3.5" />}
-            Đăng xuất &amp; sang acc kế
-          </Button>
-          <Button
-            size="sm"
-            variant="tertiary"
-            className="gap-1.5"
-            disabled={!serial || anyBusy}
-            onClick={() => void window.api.openPhoneBing(serial).then(() => toast.success('Đã mở Bing app'))}
-          >
-            <LogIn className="size-3.5" /> Mở Bing app
-          </Button>
-        </div>
-      </div>
-
-      {/* Hướng dẫn */}
-      <div className="flex shrink-0 items-start gap-2 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5 text-[12.5px] text-[var(--steel)]">
-        <Info className="mt-[1px] size-3.5 shrink-0 text-[var(--brand-blue-deep)]" />
-        <div>
-          App <b>tự đọc acc đang đăng nhập</b> (email trong panel avatar) nên bạn không cần chọn dòng. Quy trình 1 acc:{' '}
-          <b>Đọc acc đang mở → Điểm danh acc này → Đăng xuất &amp; sang acc kế</b> (app tự đăng xuất và điền sẵn email acc
-          kế — bạn chỉ nhập mật khẩu), rồi lặp lại. Không cần bind app vào tài khoản.
-        </div>
+      {/* Hàng 2: trạng thái acc trên máy */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--hairline-soft)] bg-[var(--surface)]/50 px-3 py-2 text-[12.5px]">
+        <span className="text-[12px] font-semibold uppercase tracking-wide text-[var(--steel)]">Trên điện thoại</span>
+        {signedIn?.email ? (
+          <span className="flex items-center gap-1.5">
+            đang đăng nhập:
+            <b>{signedIn.name ?? signedIn.email}</b>
+            <span className="mm-micro">{signedIn.email}</span>
+            {byEmail.get(signedIn.email.toLowerCase()) ? (
+              <Badge variant="success" className="gap-1">
+                <Check className="size-3" /> khớp “{byEmail.get(signedIn.email.toLowerCase())!.profile.name}”
+              </Badge>
+            ) : (
+              <Badge variant="warning">email chưa có trong danh sách</Badge>
+            )}
+          </span>
+        ) : (
+          <span className="text-[var(--stone)]">chưa quét — bấm “Quét acc trên máy”</span>
+        )}
+        {cached ? (
+          <span className="text-[var(--steel)]">
+            · máy có <b>{cached.length}</b> acc đã lưu (chuyển 1 tap, không cần mật khẩu)
+          </span>
+        ) : null}
       </div>
 
       {/* Bảng tài khoản */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Table className="min-w-[900px]">
+        <Table className="min-w-[980px]">
           <TableHeader>
             <TableRow className="hover:bg-[var(--surface)]">
               <TableHead className="w-[54px]">Bước</TableHead>
-              <TableHead className="w-[260px]">Tài khoản</TableHead>
-              <TableHead className="w-[210px]">Trạng thái điểm danh</TableHead>
-              <TableHead className="w-[180px]">Điểm trên app</TableHead>
-              <TableHead className="w-[130px]">Chuỗi</TableHead>
-              <TableHead className="w-[150px]">Đang mở trên máy</TableHead>
+              <TableHead className="w-[240px]">Tài khoản</TableHead>
+              <TableHead className="w-[130px]">Có trên máy</TableHead>
+              <TableHead className="w-[200px]">Trạng thái điểm danh</TableHead>
+              <TableHead className="w-[130px]">Điểm</TableHead>
+              <TableHead className="w-[180px]">Hành động</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -300,8 +321,10 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
               </TableRow>
             ) : (
               rows.map((r, i) => {
+                const email = (r.profile.account ?? '').toLowerCase()
                 const res = results[r.id]
-                const isOpen = matched?.id === r.id
+                const onPhone = email ? cachedSet.has(email) : false
+                const isOpen = !!email && signedIn?.email?.toLowerCase() === email
                 return (
                   <TableRow key={r.id} className={isOpen ? 'bg-[var(--surface)]' : undefined}>
                     <TableCell>
@@ -310,15 +333,28 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
                     <TableCell>
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium">{r.profile.name}</span>
-                        {isOpen ? <Badge variant="outline">đang mở trên máy</Badge> : null}
+                        {isOpen ? <Badge variant="outline">đang mở</Badge> : null}
                       </div>
-                      <div className="mm-micro truncate">{r.profile.account || r.profile.id}</div>
+                      <div className="mm-micro truncate">{r.profile.account || '— chưa có email —'}</div>
+                    </TableCell>
+                    <TableCell>
+                      {!cached ? (
+                        <span className="text-[12px] text-[var(--stone)]">chưa quét</span>
+                      ) : onPhone ? (
+                        <Badge variant="success">có</Badge>
+                      ) : (
+                        <Badge variant="warning" className="gap-1">
+                          <CircleAlert className="size-3" /> chưa có
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {!res ? (
                         <span className="text-[12.5px] text-[var(--stone)]">chưa chạy</span>
+                      ) : !res.switched ? (
+                        <span className="text-[12px] text-[var(--error)]">chuyển acc lỗi</span>
                       ) : !res.ok ? (
-                        <span className="text-[12px] text-[var(--error)]">lỗi: {res.error?.slice(0, 55)}</span>
+                        <span className="text-[12px] text-[var(--error)]">lỗi: {res.error?.slice(0, 50)}</span>
                       ) : res.alreadyDone ? (
                         <Badge variant="outline" className="gap-1">
                           <Check className="size-3" /> đã điểm danh hôm nay
@@ -329,24 +365,18 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="mm-tabular">
-                      {res ? (
-                        <span className="text-[13px]">
-                          {res.pointsBefore ?? '?'} → <b>{res.pointsAfter ?? '?'}</b>
-                        </span>
-                      ) : isOpen && acct?.points != null ? (
-                        <span className="text-[13px]">{acct.points}</span>
-                      ) : (
-                        <span className="text-[var(--stone)]">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="mm-tabular">{res?.streak ?? (isOpen ? (acct?.streak ?? '—') : '—')}</TableCell>
+                    <TableCell className="mm-tabular">{res?.points ?? '—'}</TableCell>
                     <TableCell>
-                      {isOpen ? (
-                        <Badge variant="success">có</Badge>
-                      ) : (
-                        <span className="text-[12px] text-[var(--stone)]">—</span>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        className="h-7 px-2.5 text-[11.5px]"
+                        disabled={anyBusy || !email}
+                        onClick={() => void switchAndCheckIn(r)}
+                      >
+                        {busy === r.id ? <RefreshCw className="size-3 animate-spin" /> : null}
+                        Chuyển acc này &amp; điểm danh
+                      </Button>
                     </TableCell>
                   </TableRow>
                 )
@@ -356,9 +386,18 @@ export function PhonePanel({ rows }: { rows: RowState[] }): React.JSX.Element {
         </Table>
       </div>
 
+      {/* Log chạy tự động */}
+      {log.length ? (
+        <div className="max-h-[92px] shrink-0 overflow-auto border-t border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5 font-mono text-[11.5px] leading-relaxed text-[var(--steel)]">
+          {log.map((l, i) => (
+            <div key={i}>{l}</div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="shrink-0 border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
-        Đăng nhập acc nào thì kết quả ghi vào <b>đúng dòng theo email</b>. Chạy lại acc đã điểm danh cũng an toàn (app báo
-        “đã điểm danh hôm nay”, không bấm trùng).
+        Bing app nhớ sẵn các acc đã đăng nhập trên máy ⇒ <b>chuyển acc chỉ 1 tap, không cần mật khẩu</b>. Acc nào báo
+        “chưa có” thì vào Bing app → avatar → Cài đặt → <b>Thêm tài khoản</b> một lần, sau đó chạy tự động được.
       </div>
     </div>
   )

@@ -123,6 +123,8 @@ export type AppSettings = {
   refreshGapMs: number
   /** Số tài khoản cập nhật point SONG SONG khi bấm "Cập nhật trạng thái" (1 = tuần tự) */
   refreshParallel?: number
+  /** Chu kỳ chế độ tự động (ms): 0 = tắt, 60000 = mỗi phút, 3600000 = mỗi giờ, 10800000 = mỗi 3 giờ */
+  autoEveryMs?: number
 }
 
 export type RefreshProgress = { done: number; total: number; profileId: string; parallel?: number }

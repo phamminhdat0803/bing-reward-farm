@@ -32,7 +32,7 @@ export default function App(): React.JSX.Element {
   >({})
   const [busy, setBusy] = useState<string | null>(null)
   /** Lệnh đang chờ của TỪNG acc (cùng acc chạy tuần tự) */
-  const [queue, setQueue] = useState<{ profileId: string; name: string; pending: number }[]>([])
+  const [queue, setQueue] = useState<{ profileId: string; name: string; pending: number; oldestWaitMs?: number }[]>([])
   /** Acc phải chờ slot (chỉ khi bật giới hạn tổng) */
   const [waiting, setWaiting] = useState<{ profileId: string; name: string; position: number }[]>([])
   /** 0 = không giới hạn tổng (các acc chạy song song) */
@@ -53,6 +53,20 @@ export default function App(): React.JSX.Element {
     }
   )
   const [phoneAppCount, setPhoneAppCount] = useState(0)
+  /** Trạng thái chế độ tự động (chu kỳ, vòng đã chạy, lần chạy tới) */
+  const [auto, setAuto] = useState<{
+    cycles: number
+    running: boolean
+    lastCycleAt: string | null
+    lastCycleResult: string | null
+    nextAt: string | null
+    remediations: number
+    everyMs: number
+    enabled: boolean
+  } | null>(null)
+  const [escalations, setEscalations] = useState<
+    { file: string; profile: string; task: string; tries: number; at: string; summary: string }[]
+  >([])
   const [proxyCount, setProxyCount] = useState(0)
   const [proxies, setProxies] = useState<ProxyItem[]>([])
   /** proxyId -> suc khoe proxy (de hien IP ra / trang thai ngay tren bang) */
@@ -179,11 +193,35 @@ export default function App(): React.JSX.Element {
   }, [reload])
 
   useEffect(() => {
+    // Do thiet bi THAT khi mo app (adb nhanh, KHONG mo trinh duyet) de badge khong hien so lieu cu
     void window.api
-      .listPhoneApps(false)
+      .detectPhoneApps()
       .then((s) => setPhoneAppCount(s.devices.filter((d) => d.status === 'online').length))
       .catch(() => {})
+    void window.api.autoStatus().then(setAuto).catch(() => {})
+    void window.api.autoEscalations().then(setEscalations).catch(() => {})
+    const off = window.api.onAutoChanged(() => {
+      void window.api.autoStatus().then(setAuto).catch(() => {})
+      void window.api.autoEscalations().then(setEscalations).catch(() => {})
+    })
+    return off
   }, [])
+
+  /** Mở hộp hồ sơ cần agent phân tích: copy đường dẫn file JSON để đưa cho agent */
+  const openEscalations = async (): Promise<void> => {
+    const list = await window.api.autoEscalations()
+    setEscalations(list)
+    if (!list.length) {
+      toast.info('Chưa có hồ sơ nào — chỉ ghi khi 1 điểm chạy 3 lần vẫn không lên.')
+      return
+    }
+    const first = list[0]
+    await navigator.clipboard.writeText(list.map((e) => e.file).join('\n')).catch(() => {})
+    toast.info(
+      `Đã copy ${list.length} đường dẫn hồ sơ. Gần nhất: ${first.profile}/${first.task} (${first.tries} lần không lên) — dán cho agent kèm file này.`,
+      { duration: 9000 }
+    )
+  }
 
   const runningRows = useMemo(() => rows.filter((r) => r.run.running), [rows])
 
@@ -320,20 +358,43 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="flex h-full flex-col bg-[var(--canvas)]">
-      {/* Promo banner kiểu MiniMax */}
-      <div className="flex items-center justify-center gap-3 bg-[var(--primary)] px-4 py-1.5 text-[12.5px] font-medium text-white">
-        <span>
-          Hôm nay đã kiếm{' '}
-          <strong className="font-semibold">
-            {fmtNum(rows.reduce((s, r) => s + (r.cache?.todayPoints ?? 0), 0))}
-          </strong>{' '}
+      {/* Promo banner kiểu MiniMax.
+          BUG 2026-10-16: truoc day la flex justify-center -> khi chip "tu dong" xuat hien / doi noi dung
+          (dang chay <-> toi HH:MM) thi ca dong bi day ngang, va lech line-height lam thanh tren CAO/THAP
+          nhap nhay. Fix: luoi 3 cot (1fr - auto - 1fr) + chieu cao CO DINH + so tabular + chip co min-width. */}
+      <div data-slot="promo-bar" className="grid h-8 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 overflow-hidden bg-[var(--primary)] px-4 text-[12.5px] font-medium leading-none text-white">
+        <div className="min-w-0" />
+        <div className="mm-tabular whitespace-nowrap">
+          Hôm nay đã kiếm <strong className="font-semibold">{fmtNum(rows.reduce((s, r) => s + (r.cache?.todayPoints ?? 0), 0))}</strong>{' '}
           điểm · {rows.length} tài khoản · {rows.filter((r) => r.browser.running).length} trình duyệt đang mở
-        </span>
-        {rows.some((r) => r.needsRefresh) ? (
-          <span className="rounded-full bg-[var(--brand-coral)] px-[10px] py-[2px] text-[12px] font-semibold">
-            có số liệu của hôm qua
-          </span>
-        ) : null}
+        </div>
+        <div className="flex min-w-0 items-center justify-end gap-2 overflow-hidden">
+          {escalations.length ? (
+            <button
+              type="button"
+              onClick={() => void openEscalations()}
+              className="shrink-0 rounded-full bg-[var(--brand-coral)] px-[10px] py-[2px] text-[12px] font-semibold text-white hover:brightness-110"
+              title="Các điểm chạy mãi không lên — mở hồ sơ để đưa cho agent phân tích"
+            >
+              ⚠ {escalations.length} điểm cần phân tích
+            </button>
+          ) : null}
+          {rows.some((r) => r.needsRefresh) ? (
+            <span className="shrink-0 rounded-full bg-[var(--brand-coral)] px-[10px] py-[2px] text-[12px] font-semibold">
+              có số liệu của hôm qua
+            </span>
+          ) : null}
+          {auto?.enabled ? (
+            <span
+              className="mm-tabular flex min-w-[196px] shrink-0 items-center justify-center rounded-full bg-white/20 px-[10px] py-[2px] text-[12px] font-semibold"
+              title={auto.lastCycleResult ?? 'chưa chạy vòng nào'}
+            >
+              ⏱ tự động {auto.everyMs === 60000 ? '1 phút' : auto.everyMs === 3600000 ? '1 giờ' : '3 giờ'} ·{' '}
+              {auto.running ? 'đang chạy' : auto.nextAt ? `tới ${new Date(auto.nextAt).toLocaleTimeString('vi-VN').slice(0, 5)}` : 'chờ'}{' '}
+              · {auto.cycles} vòng
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {/* Top nav */}
@@ -430,6 +491,30 @@ export default function App(): React.JSX.Element {
                       if (!v) toast.warning('Đã TẮT no-direct: hết proxy sẽ chạy bằng IP thật của máy.')
                     }}
                   />
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]" title="Tự chạy lại các task còn thiếu cho tới khi đủ điểm trong ngày">
+                    ⏱ Tự động chạy
+                  </span>
+                  <select
+                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
+                    value={String(auto?.everyMs ?? settings?.autoEveryMs ?? 0)}
+                    onChange={async (e) => {
+                      const ms = Number(e.target.value)
+                      const st = await window.api.autoSetEvery(ms)
+                      setAuto({ ...(auto ?? { cycles: 0, running: false, lastCycleAt: null, lastCycleResult: null, remediations: 0 }), ...st })
+                      toast.info(
+                        ms === 0
+                          ? 'Đã TẮT chế độ tự động.'
+                          : `Tự động chạy mỗi ${ms === 60000 ? '1 phút' : ms === 3600000 ? '1 giờ' : '3 giờ'} cho tới khi đủ điểm.`
+                      )
+                    }}
+                  >
+                    <option value={0}>Tắt</option>
+                    <option value={60000}>Mỗi 1 phút</option>
+                    <option value={3600000}>Mỗi 1 giờ</option>
+                    <option value={10800000}>Mỗi 3 giờ</option>
+                  </select>
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Cập nhật song song</span>
@@ -683,8 +768,21 @@ export default function App(): React.JSX.Element {
                 })}
                 {queue.length > 0 ? (
                   <div className="max-h-[132px] shrink-0 overflow-y-auto border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
-                    <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
-                      Lệnh chờ của cùng acc ({queue.reduce((s, q) => s + q.pending, 0)})
+                    <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+                      <span className="text-[12px] font-semibold text-[var(--stone)]">
+                        Lệnh chờ của cùng acc ({queue.reduce((s, q) => s + q.pending, 0)})
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 rounded px-1.5 py-[1px] text-[11.5px] text-[var(--error)] hover:bg-[var(--surface)]"
+                        title="Xoá toàn bộ lệnh chờ (dùng khi badge bị treo)"
+                        onClick={async () => {
+                          const r = await window.api.clearQueue()
+                          toast.info(`Đã xoá ${r.cleared} lệnh chờ.`)
+                        }}
+                      >
+                        Xoá hết
+                      </button>
                     </div>
                     {queue.map((q) => (
                       <div
@@ -692,7 +790,21 @@ export default function App(): React.JSX.Element {
                         className="mb-1 flex items-center gap-2 rounded-[8px] bg-[var(--surface)] px-2 py-1 last:mb-0"
                       >
                         <span className="min-w-0 flex-1 truncate text-[12px]">{q.name}</span>
-                        <span className="shrink-0 text-[11.5px] text-[var(--stone)]">{q.pending} lệnh chờ</span>
+                        <span className="mm-tabular shrink-0 text-[11.5px] text-[var(--stone)]">
+                          {q.pending} lệnh chờ
+                          {q.oldestWaitMs != null ? ` · ${Math.max(1, Math.round(q.oldestWaitMs / 60000))} phút` : ''}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1.5 py-[1px] text-[11.5px] text-[var(--error)] hover:bg-[var(--canvas)]"
+                          title={`Xoá lệnh chờ của ${q.name}`}
+                          onClick={async () => {
+                            const r = await window.api.clearQueue(q.profileId)
+                            toast.info(`Đã xoá ${r.cleared} lệnh chờ của ${q.name}.`)
+                          }}
+                        >
+                          Xoá
+                        </button>
                       </div>
                     ))}
                   </div>

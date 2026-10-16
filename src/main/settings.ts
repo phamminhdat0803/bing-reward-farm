@@ -25,6 +25,11 @@ export type Settings = {
    * cac TAI KHOAN KHAC NHAU chay song song, con nhieu lenh tren CUNG mot acc thi xep hang doi rieng.
    */
   maxParallelRuns: number
+  /**
+   * Chu ky che do TU DONG (ms): cu moi chu ky chay lai cac task con thieu cho toi khi du diem.
+   * 0 = tat · 60000 = moi phut · 3600000 = moi gio · 10800000 = moi 3 gio.
+   */
+  autoEveryMs: number
 }
 
 const DEFAULTS: Settings = {
@@ -33,7 +38,8 @@ const DEFAULTS: Settings = {
   refreshParallel: 3,
   noDirectFallback: true,
   runHeadless: false,
-  maxParallelRuns: 0
+  maxParallelRuns: 0,
+  autoEveryMs: 0
 }
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')

@@ -52,7 +52,10 @@ export function ProxyTestFab({
         <button
           type="button"
           data-slot="proxy-test-fab"
-          className="relative flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:scale-[1.06]"
+          /* BUG 2026-10-16: dung hover:scale o day lam FAB doi kich thuoc -> Radix (floating-ui) tinh lai
+             vi tri popover moi frame, popover nhay theo -> hover bi mat roi lai -> lap vo tan = "giat giat".
+             Doi sang hover KHONG doi hinh hoc (shadow + vien). */
+          className="relative flex size-12 items-center justify-center rounded-full border border-[var(--hairline)] bg-[var(--surface)] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color] duration-150 hover:border-[var(--hairline-strong)] hover:shadow-[0_10px_28px_rgba(0,0,0,0.26)]"
           title={`Đang kiểm tra proxy ${state.done}/${state.total} (${pct}%) — bấm để xem chi tiết`}
           aria-label={`Đang kiểm tra proxy ${state.done} trên ${state.total}`}
         >
