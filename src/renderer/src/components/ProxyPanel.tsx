@@ -8,6 +8,10 @@ import {
   Download,
   FileText,
   Filter,
+  History,
+  MapPin,
+  Clock3,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCw,
@@ -25,6 +29,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { Input } from '@renderer/components/ui/input'
@@ -92,6 +98,18 @@ function getProxyProtocol(url: string): 'socks5' | 'socks4' | 'http' {
   if (scheme === 'socks5') return 'socks5'
   if (scheme === 'socks4') return 'socks4'
   return 'http'
+}
+
+/** Nhãn ngắn trong bảng; lỗi gốc vẫn có trong title và lịch sử test. */
+function proxyErrorLabel(error?: string): string {
+  if (!error) return 'Không thể kết nối'
+  if (/CHAN BING|chặn bing/i.test(error)) return 'Không truy cập được Bing'
+  if (/timeout|timed out/i.test(error)) return 'Hết thời gian chờ'
+  if (/refused|ECONNREFUSED/i.test(error)) return 'Kết nối bị từ chối'
+  if (/ENOTFOUND|name.*resolved|DNS/i.test(error)) return 'Không tìm thấy máy chủ'
+  if (/reset|ECONNRESET/i.test(error)) return 'Kết nối bị ngắt'
+  if (/407|authentication|credentials/i.test(error)) return 'Lỗi xác thực proxy'
+  return 'Không thể kết nối'
 }
 
 /** Tab "Proxy": kho proxy dùng chung, lọc tìm kiếm, test trực tiếp, xoá nhiều, biết tài khoản nào đang gắn. */
@@ -266,7 +284,7 @@ export function ProxyPanel({
 
       return true
     })
-  }, [items, search, statusFilter, protocolFilter, usageFilter, rows])
+  }, [items, search, statusFilter, protocolFilter, usageFilter, rows, stats])
 
   // Sap xep: mac dinh theo thu tu them vao; ho tro sort theo do tre (reply delay)
   const sortedItems = useMemo(() => {
@@ -410,77 +428,48 @@ export function ProxyPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Thanh thao tác chính */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
-        <Button
-          size="sm"
-          className="gap-1.5"
-          onClick={() => {
-            setEditing(null)
-            setDialogOpen(true)
-          }}
-        >
-          <Plus className="size-3.5" /> Thêm proxy
-        </Button>
-        <Button size="sm" variant="secondary" className="gap-1.5" onClick={() => setBulkOpen(true)}>
-          <ClipboardPaste className="size-3.5" /> Dán hàng loạt
-        </Button>
-        <span className="mx-1 h-5 w-px bg-[var(--hairline)]" />
-        <Button
-          size="sm"
-          variant="tertiary"
-          className="gap-1.5"
-          disabled={!items.length || !!testProgress}
-          onClick={() => onTestAll?.()}
-        >
-          <Wifi className={testProgress ? 'size-3.5 opacity-50' : 'size-3.5'} /> Kiểm tra tất cả
-          {testProgress ? (
-            <span className="mm-tabular ml-0.5 text-[11.5px] text-[var(--stone)]">
-              {testProgress.done}/{testProgress.total}
-            </span>
-          ) : null}
-        </Button>
-        <Button size="sm" variant="tertiary" className="gap-1.5" onClick={() => void reload()}>
-          <RefreshCw className="size-3.5" /> Nạp lại
-        </Button>
+      {/* Các nhóm luôn giữ nguyên vị trí khi chọn/bỏ chọn hoặc đang test. */}
+      <div data-slot="proxy-toolbar" className="flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 [&>button]:shrink-0">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" className="gap-1.5">
+              <Plus className="size-3.5" /> Thêm proxy <ChevronDown className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[220px]">
+            <DropdownMenuItem className="gap-2" onClick={() => { setEditing(null); setDialogOpen(true) }}>
+              <Plus className="size-3.5" /> Thêm một proxy
+            </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2" onClick={() => setBulkOpen(true)}>
+              <ClipboardPaste className="size-3.5" /> Dán hàng loạt
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <span className="mx-1 h-5 w-px shrink-0 bg-[var(--hairline)]" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="secondary" className="gap-1.5">
+              <Wifi className="size-3.5" /> Kiểm tra <ChevronDown className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuItem className="gap-2" disabled={!selectedIds.length || !!testProgress} onClick={testSelected}>
+              <Wifi className="size-3.5" /> Kiểm tra đã chọn ({selectedIds.length})
+            </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2" disabled={!items.length || !!testProgress} onClick={() => onTestAll?.()}>
+              <Wifi className="size-3.5" /> Kiểm tra tất cả ({items.length})
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="tertiary" className="gap-1.5">
+              <Download className="size-3.5" /> Xuất dữ liệu <ChevronDown className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[240px]">
 
-        <span className="mx-1 h-5 w-px bg-[var(--hairline)]" />
-        {/* Lịch sử test: xoá proxy chết liên tục + export */}
-        <Button
-          size="sm"
-          variant="tertiary"
-          className="gap-1.5 text-[var(--error)]"
-          disabled={!deadList.length || !!testProgress}
-          title="Xoá các proxy mà 10 lần test gần nhất đều chết"
-          onClick={() =>
-            setConfirm({
-              title: `Xoá ${deadList.length} proxy chết 10 lần liên tiếp?`,
-              description:
-                `Các proxy này đã test 10 lần gần nhất đều KHÔNG kết nối được:\n` +
-                deadList
-                  .slice(0, 8)
-                  .map((p) => `• ${p.label}`)
-                  .join('\n') +
-                (deadList.length > 8 ? `\n… và ${deadList.length - 8} proxy khác` : '') +
-                `\n\nProxy đang gắn vào tài khoản sẽ bị bỏ gắn trước khi xoá.`,
-              confirmLabel: `Xoá ${deadList.length} proxy`,
-              danger: true,
-              onConfirm: async () => {
-                const ids = deadList.map((p) => p.id)
-                await window.api.removeProxies(ids)
-                await window.api.proxyHistoryClear(ids)
-                toast.success(`Đã xoá ${ids.length} proxy chết và lịch sử test của chúng.`)
-                await reload()
-                onChanged()
-              }
-            })
-          }
-        >
-          <Trash2 className="size-3.5" /> Xoá chết ≥10 ({deadList.length})
-        </Button>
-        <Button
-          size="sm"
-          variant="tertiary"
+        <DropdownMenuItem
           className="gap-1.5"
           disabled={!items.length}
           title="Xuất toàn bộ kho proxy kèm thống kê test ra CSV"
@@ -523,10 +512,8 @@ export function ProxyPanel({
           }
         >
           <Download className="size-3.5" /> Xuất CSV
-        </Button>
-        <Button
-          size="sm"
-          variant="tertiary"
+        </DropdownMenuItem>
+        <DropdownMenuItem
           className="gap-1.5"
           disabled={!items.length}
           title="Xuất JSON (kèm lịch sử test từng proxy) để backup hoặc gửi agent"
@@ -559,10 +546,8 @@ export function ProxyPanel({
           }
         >
           <Download className="size-3.5" /> Xuất JSON
-        </Button>
-        <Button
-          size="sm"
-          variant="tertiary"
+        </DropdownMenuItem>
+        <DropdownMenuItem
           className="gap-1.5"
           title="Xuất log tài khoản (số liệu, tiến độ, proxy, lịch sử, hồ sơ, log thô) ra file .log"
           onClick={() =>
@@ -579,48 +564,81 @@ export function ProxyPanel({
           }
         >
           <FileText className="size-3.5" /> Xuất log tài khoản
-        </Button>
+        </DropdownMenuItem>
 
-        {/* Các nút thao tác khi có proxy được chọn */}
-        {selectedIds.length > 0 ? (
-          <>
-            <span className="mx-1 h-5 w-px bg-[var(--hairline)]" />
-            <Badge variant="outline">{selectedIds.length} đã chọn</Badge>
-            <Button
-              size="sm"
-              variant="tertiary"
-              className="gap-1.5"
-              disabled={!!testProgress}
-              onClick={() => testSelected()}
-            >
-              <Wifi className="size-3.5" /> Kiểm tra đã chọn
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="tertiary" className="gap-1.5">
+              <MoreHorizontal className="size-3.5" /> Thao tác khác <ChevronDown className="size-3" />
             </Button>
-            <Button size="sm" variant="danger" className="gap-1.5" onClick={deleteSelected}>
-              <Trash2 className="size-3.5" /> Xoá đã chọn ({selectedIds.length})
-            </Button>
-            <Button
-              size="sm"
-              variant="tertiary"
-              className="h-7 px-2 text-[12px]"
-              onClick={() => setSelectedIds([])}
-              title="Bỏ chọn tất cả"
-            >
-              <X className="size-3.5" /> Bỏ chọn
-            </Button>
-          </>
-        ) : null}
-
-        <span className="ml-auto text-[12.5px] text-[var(--stone)]">
-          {items.length} proxy · {rows.filter((r) => r.profile.proxyId || r.profile.proxy).length} tài khoản đã gắn
-        </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[260px]">
+            <DropdownMenuItem className="gap-2" disabled={selectedIds.length !== 1} onClick={() => {
+              const proxy = items.find((p) => p.id === selectedIds[0])
+              if (proxy) { setEditing(proxy); setDialogOpen(true) }
+            }}>
+              <Pencil className="size-3.5" /> Sửa proxy đã chọn
+            </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2" onClick={() => void reload()}>
+              <RefreshCw className="size-3.5" /> Nạp lại bảng
+            </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2" disabled={!selectedIds.length} onClick={() => setSelectedIds([])}>
+              <X className="size-3.5" /> Bỏ chọn tất cả
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 text-[var(--error)]" disabled={!selectedIds.length || !!testProgress} onClick={deleteSelected}>
+              <Trash2 className="size-3.5" /> Xoá proxy đã chọn ({selectedIds.length})
+            </DropdownMenuItem>
+        <DropdownMenuItem
+          className="gap-1.5 text-[var(--error)]"
+          disabled={!deadList.length || !!testProgress}
+          title="Xoá các proxy mà 10 lần test gần nhất đều chết"
+          onClick={() =>
+            setConfirm({
+              title: `Xoá ${deadList.length} proxy chết 10 lần liên tiếp?`,
+              description:
+                `Các proxy này đã test 10 lần gần nhất đều KHÔNG kết nối được:\n` +
+                deadList
+                  .slice(0, 8)
+                  .map((p) => `• ${p.label}`)
+                  .join('\n') +
+                (deadList.length > 8 ? `\n… và ${deadList.length - 8} proxy khác` : '') +
+                `\n\nProxy đang gắn vào tài khoản sẽ bị bỏ gắn trước khi xoá.`,
+              confirmLabel: `Xoá ${deadList.length} proxy`,
+              danger: true,
+              onConfirm: async () => {
+                const ids = deadList.map((p) => p.id)
+                await window.api.removeProxies(ids)
+                await window.api.proxyHistoryClear(ids)
+                toast.success(`Đã xoá ${ids.length} proxy chết và lịch sử test của chúng.`)
+                await reload()
+                onChanged()
+              }
+            })
+          }
+        >
+          <Trash2 className="size-3.5" /> Xoá chết ≥10 ({deadList.length})
+        </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="ml-auto flex w-[160px] shrink-0 items-center justify-end gap-1.5 pl-2">
+          <span data-slot="proxy-selection-count" className="mm-tabular whitespace-nowrap text-[12.5px] text-[var(--steel)]" aria-live="polite">
+            {selectedIds.length} proxy đã chọn
+          </span>
+          <Button size="icon-sm" variant="tertiary" disabled={!selectedIds.length} onClick={() => setSelectedIds([])} title="Bỏ chọn tất cả">
+            <X className="size-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Thanh bộ lọc */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--hairline-soft)] bg-[var(--surface)]/30 px-3 py-1.5">
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--hairline-soft)] bg-[var(--surface)]/30 px-3 [&>*]:shrink-0">
         {/* Sắp xếp theo độ trễ (reply delay) */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]">
+            <Button size="sm" variant="tertiary" className="h-8 w-[210px] justify-between gap-1.5 whitespace-nowrap text-[12.5px]">
               <ArrowUpDown className="size-3.5" /> Sắp xếp: {sortLabels[sortBy].split(' (')[0]}
               <ChevronDown className="size-3.5 text-[var(--stone)]" />
             </Button>
@@ -658,7 +676,7 @@ export function ProxyPanel({
         {/* Dropdown Trạng thái */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]">
+            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 whitespace-nowrap text-[12.5px]">
               <Filter className="size-3 text-[var(--stone)]" />
               <span>
                 Trạng thái: <strong>{statusLabels[statusFilter]}</strong>
@@ -693,7 +711,7 @@ export function ProxyPanel({
         {/* Dropdown Giao thức */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]">
+            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 whitespace-nowrap text-[12.5px]">
               <span>
                 Giao thức: <strong>{protocolLabels[protocolFilter]}</strong>
               </span>
@@ -713,7 +731,7 @@ export function ProxyPanel({
         {/* Dropdown Sử dụng */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]">
+            <Button size="sm" variant="tertiary" className="h-8 gap-1.5 whitespace-nowrap text-[12.5px]">
               <span>
                 Sử dụng: <strong>{usageLabels[usageFilter]}</strong>
               </span>
@@ -728,11 +746,9 @@ export function ProxyPanel({
         </DropdownMenu>
 
         {/* Nút đặt lại bộ lọc */}
-        {hasActiveFilter ? (
-          <Button size="sm" variant="tertiary" className="h-8 gap-1.5 text-[12.5px]" onClick={resetFilters}>
+        <Button size="sm" variant="tertiary" disabled={!hasActiveFilter} className="h-8 gap-1.5 whitespace-nowrap text-[12.5px]" onClick={resetFilters}>
             <RotateCcw className="size-3" /> Đặt lại bộ lọc
           </Button>
-        ) : null}
 
         <span className="ml-auto text-[12.5px] text-[var(--stone)]">
           {hasActiveFilter ? (
@@ -749,19 +765,19 @@ export function ProxyPanel({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
         {/* Table tu tao vung cuon (overflow-auto) — khong boc them div overflow nua,
             neu khong thead sticky se khong dinh */}
-        <Table className="min-w-[1320px] table-fixed">
+        <Table className="min-w-[1120px] table-fixed">
             <colgroup>
               <col style={{ width: 44 }} />
-              <col style={{ width: 180 }} />
-              <col style={{ width: 250 }} />
-              <col style={{ width: 290 }} />
-              <col style={{ width: 170 }} />
-              <col style={{ width: 230 }} />
-              <col style={{ width: 130 }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '23%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: 60 }} />
             </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-[var(--surface)]">
-                <TableHead className="w-[44px] px-2 text-center">
+                <TableHead className="px-2 text-center">
                   <Checkbox
                     checked={
                       filteredItems.length > 0 && filteredItems.every((p) => selectedIds.includes(p.id))
@@ -777,7 +793,7 @@ export function ProxyPanel({
                 <TableHead>Tên</TableHead>
                 <TableHead>Chuỗi proxy</TableHead>
                 <TableHead>Kết quả test gần nhất</TableHead>
-                <TableHead className="text-center">Lịch sử test</TableHead>
+                <TableHead>Lịch sử test</TableHead>
                 <TableHead>Tài khoản đang dùng</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
               </TableRow>
@@ -810,10 +826,10 @@ export function ProxyPanel({
                       <ContextMenuTrigger asChild>
                         <TableRow
                           data-state={selected ? 'selected' : undefined}
-                          className="cursor-pointer"
+                          className="h-14 cursor-pointer [&>td]:h-14 [&>td]:overflow-hidden [&>td]:py-1"
                           onClick={() => toggleSelectOne(p.id)}
                         >
-                      <TableCell className="w-[44px] px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="px-2 text-center" onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           checked={selected}
                           onCheckedChange={() => toggleSelectOne(p.id)}
@@ -828,134 +844,138 @@ export function ProxyPanel({
                         <code className="block truncate text-[11.5px] text-[var(--steel)]" title={p.url}>{p.url}</code>
                       </TableCell>
                       <TableCell>
-                        {!t ? (
-                          <span className="text-[12.5px] text-[var(--stone)]">chưa test</span>
-                        ) : t.ok ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant="success">OK</Badge>
-                            <span className="mm-tabular text-[12.5px]">{t.ip}</span>
-                            {t.country ? (
-                              <span className="text-[12px] text-[var(--steel)]">
-                                {t.country}
-                                {t.city ? `, ${t.city}` : ''}
-                              </span>
-                            ) : null}
-                            {t.latency ? <span className="mm-micro">{t.latency}ms</span> : null}
-                            <span className="mm-micro">· {timeAgo(t.at)}</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 overflow-hidden">
-                            <Badge variant="destructive" className="shrink-0">LỖI</Badge>
-                            <span className="truncate text-[12px] text-[var(--error)]" title={t.error}>
-                              {t.error}
-                            </span>
-                          </div>
-                        )}
+                        <div className={`flex h-11 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-lg px-2 ${!t ? 'bg-[var(--surface)]' : t.ok ? 'bg-emerald-50/70' : 'bg-rose-50/70'}`}>
+                          {!t ? (
+                            <div className="flex items-center gap-1.5 text-[12px] text-[var(--stone)]"><Wifi className="size-3.5" /> Chưa kiểm tra</div>
+                          ) : (
+                            <>
+                              <div className="flex h-5 min-w-0 items-center gap-1.5">
+                                <Badge variant={t.ok ? 'success' : 'destructive'} className="h-5 gap-1 px-1.5 text-[11px]">
+                                  {t.ok ? <Check className="size-3" /> : <X className="size-3" />}{t.ok ? 'Sống' : 'Lỗi'}
+                                </Badge>
+                                {t.ok ? (
+                                  <span className="mm-tabular min-w-0 truncate text-[12px] font-medium text-[var(--slate)]" title={t.ip}>{t.ip || 'Chưa rõ IP'}</span>
+                                ) : (
+                                  <span className="min-w-0 truncate text-[12px] font-medium text-rose-700" title={t.error}>{proxyErrorLabel(t.error)}</span>
+                                )}
+                                {t.ok && t.latency != null ? (
+                                  <Badge variant={t.latency <= 1000 ? 'success' : 'warning'} className="mm-tabular ml-auto h-5 px-1.5 text-[11px]" title="Độ trễ phản hồi">
+                                    {t.latency} ms
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <div className="flex h-4 min-w-0 items-center gap-1.5 text-[11px] text-[var(--steel)]">
+                                {t.ok ? (
+                                  <span className="flex min-w-0 flex-1 items-center gap-1" title={[t.country, t.city].filter(Boolean).join(', ')}>
+                                    <MapPin className="size-3 shrink-0 text-emerald-600" />
+                                    <span className="truncate">{[t.country, t.city].filter(Boolean).join(', ') || 'Chưa rõ vị trí'}</span>
+                                  </span>
+                                ) : <span className="min-w-0 flex-1 truncate" title={t.error}>Kết nối thất bại</span>}
+                                <span className="flex shrink-0 items-center gap-1" title={`Kiểm tra lúc ${new Date(t.at).toLocaleString('vi-VN')}`}><Clock3 className="size-3" />{timeAgo(t.at)}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                       {/* Lịch sử test: số lần sống/chết + tỉ lệ + chuỗi thất bại */}
-                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <TableCell className="text-left" onClick={(e) => e.stopPropagation()}>
                         {(() => {
                           const s = stats[p.id]
                           if (!s || s.total === 0) {
-                            return <span className="text-[12px] text-[var(--stone)]">chưa có lịch sử</span>
+                            return <div className="flex h-11 items-center gap-1.5 text-[12px] text-[var(--stone)]"><History className="size-3.5" /> Chưa có lịch sử</div>
                           }
+                          const rate = s.successRate ?? 0
+                          const tone = rate >= 50 ? 'success' : rate > 0 ? 'warning' : 'destructive'
                           return (
-                            <div className="flex flex-col items-center gap-0.5">
-                              <div className="mm-tabular text-[12.5px]">
-                                <span className="font-medium text-[var(--success-text)]">{s.ok}</span>
-                                <span className="text-[var(--stone)]"> / {s.total} lần sống</span>
+                            <div className="mm-tabular flex h-11 min-w-0 flex-col justify-center gap-0.5">
+                              <div className="flex h-4 min-w-0 items-center justify-between gap-1.5" title={`Thành công ${s.ok} lần · thất bại ${s.fail} lần · tổng ${s.total} lần test`}>
+                                <span className="min-w-0 truncate text-[12px] text-[var(--steel)]"><span className="font-semibold text-emerald-700">{s.ok} sống</span><span className="mx-1 text-[var(--stone)]">/</span><span className="font-medium text-rose-600">{s.fail} lỗi</span></span>
+                                <Badge className="h-4 min-w-10 px-1.5 text-[11px]" variant={tone}>{s.successRate ?? '—'}{s.successRate != null ? '%' : ''}</Badge>
                               </div>
-                              <div className="flex items-center gap-1">
-                                {s.successRate != null ? (
-                                  <Badge variant={s.successRate >= 50 ? 'success' : s.successRate > 0 ? 'warning' : 'destructive'}>
-                                    {s.successRate}%
-                                  </Badge>
-                                ) : null}
-                                {s.dead10 ? (
-                                  <Badge variant="destructive" title="10 lần test gần nhất đều chết — nên xoá">
-                                    chết 10 lần liên tiếp
-                                  </Badge>
-                                ) : s.failStreak >= 3 ? (
-                                  <Badge variant="warning" title={`${s.failStreak} lần lỗi liên tiếp`}>
-                                    lỗi ×{s.failStreak}
-                                  </Badge>
-                                ) : null}
+                              <div className="flex h-1 w-full shrink-0 overflow-hidden rounded-full bg-rose-100" role="img" aria-label={`Tỷ lệ test thành công ${rate}%`}>
+                                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, rate))}%` }} />
                               </div>
-                              <button
-                                type="button"
-                                className="text-[11.5px] text-[var(--brand-blue-deep)] hover:underline"
-                                onClick={() => setHistoryOf(p)}
-                              >
-                                xem {s.attempts.length} lần test
-                              </button>
+                              <div className="flex h-5 min-w-0 items-center justify-between gap-1">
+                                <Button size="sm" variant="tertiary" className="h-5 shrink-0 gap-1 border-[var(--hairline)] px-1.5 text-[11px] text-[var(--brand-blue-deep)] hover:bg-blue-50" onClick={() => setHistoryOf(p)} aria-label={`Xem lịch sử test của ${p.label}`}>
+                                  <History className="size-3" /> Xem lịch sử
+                                </Button>
+                                {s.failStreak >= 3 ? (
+                                  <Badge variant={s.dead10 ? 'destructive' : 'warning'} className="h-5 min-w-0 px-1.5 text-[10.5px]" title={`${s.failStreak} lần lỗi liên tiếp${s.dead10 ? ' — nên thay hoặc xoá proxy' : ''}`}>
+                                    <span className="truncate">{s.dead10 ? 'Chết' : 'Lỗi'} ×{s.failStreak}</span>
+                                  </Badge>
+                                ) : <span className="truncate text-[10.5px] text-[var(--stone)]" title={`${s.total} lần kiểm tra`}>{s.total} lần test</span>}
+                              </div>
                             </div>
                           )
                         })()}
                       </TableCell>
                       <TableCell>
                         {users.length === 0 ? (
-                          <span className="text-[12px] font-medium text-emerald-600">✓ chưa gắn</span>
+                          <span className="text-[12px] text-[var(--stone)]">Chưa gắn tài khoản</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1">
-                            {users.map((u) => {
-                              const isMain = u.profile.proxyId === p.id || u.profile.proxy === p.url
-                              return (
-                                <Badge
-                                  key={u.id}
-                                  variant={isMain ? 'outline' : 'secondary'}
-                                  className={!isMain ? 'text-[11px] opacity-80' : 'text-[11px]'}
-                                  title={isMain ? 'Đang dùng làm proxy chính' : 'Đang dùng làm proxy dự phòng'}
-                                >
-                                  {u.profile.name}{!isMain ? ' (dự phòng)' : ''}
-                                </Badge>
-                              )
-                            })}
+                          <div className="flex h-10 min-w-0 flex-col justify-center gap-0.5 overflow-hidden" title={users.map((u) => `${u.profile.name} (${u.profile.proxyId === p.id || u.profile.proxy === p.url ? 'chính' : 'dự phòng'})`).join('\n')}>
+                            <div className="flex h-5 min-w-0 items-center gap-1">
+                              <span className="min-w-0 truncate text-[12px] font-medium">{users[0].profile.name}</span>
+                              {users.length > 1 ? <Badge variant="secondary" className="mm-tabular h-5 px-1.5 text-[11px]">+{users.length - 1}</Badge> : null}
+                            </div>
+                            <span className="h-4 truncate text-[11.5px] text-[var(--stone)]">
+                              {users.length > 1 ? `${users.length} tài khoản đang dùng` : users[0].profile.proxyId === p.id || users[0].profile.proxy === p.url ? 'Proxy chính' : 'Proxy dự phòng'}
+                            </span>
                           </div>
                         )}
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            size="icon-sm"
-                            variant="tertiary"
-                            title="Gán tài khoản vào proxy này"
-                            onClick={() => {
-                              setAssignTarget(p)
-                              setAssignOpen(true)
-                            }}
-                          >
-                            <UserPlus className="size-3.5" />
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="tertiary"
-                            title="Kiểm tra proxy này"
-                            disabled={busy === `test:${p.id}`}
-                            onClick={() => void testOne(p.id)}
-                          >
-                            <Wifi className={busy === `test:${p.id}` ? 'size-3.5 animate-pulse' : 'size-3.5'} />
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="tertiary"
-                            title="Sửa proxy"
-                            onClick={() => {
-                              setEditing(p)
-                              setDialogOpen(true)
-                            }}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="tertiary"
-                            title="Xoá proxy khỏi kho"
-                            className="text-[var(--error)]"
-                            onClick={() => deleteOne(p)}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon-sm" variant="tertiary" title="Thao tác với proxy" aria-label={`Thao tác với ${p.label}`}>
+                              <MoreHorizontal className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+<DropdownMenuContent className="min-w-[240px]">
+                        <DropdownMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
+                          {p.label}
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress} onClick={() => void testOne(p.id)}>
+                          <Wifi className="size-3.5" /> Kiểm tra proxy này
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(p.url)
+                            toast.success('Đã copy chuỗi proxy.')
+                          }}
+                        >
+                          <ClipboardPaste className="size-3.5" /> Copy chuỗi proxy
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            setEditing(p)
+                            setDialogOpen(true)
+                          }}
+                        >
+                          <Pencil className="size-3.5" /> Sửa proxy
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2"
+                          onClick={() => {
+                            setAssignTarget(p)
+                            setAssignOpen(true)
+                          }}
+                        >
+                          <UserPlus className="size-3.5" /> Gán tài khoản vào proxy này
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2 text-[var(--error)]"
+                          onClick={() => deleteOne(p)}
+                        >
+                          <Trash2 className="size-3.5" /> Xoá khỏi kho
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                         </TableRow>
                       </ContextMenuTrigger>
@@ -965,7 +985,7 @@ export function ProxyPanel({
                           {p.label}
                         </ContextMenuLabel>
                         <ContextMenuSeparator />
-                        <ContextMenuItem className="gap-2" onClick={() => void testOne(p.id)}>
+                        <ContextMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress} onClick={() => void testOne(p.id)}>
                           <Wifi className="size-3.5" /> Kiểm tra proxy này
                         </ContextMenuItem>
                         <ContextMenuItem
@@ -1013,7 +1033,7 @@ export function ProxyPanel({
       </div>
 
       {/* Dòng trạng thái đáy bảng */}
-      <div className="flex shrink-0 items-center justify-between border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
+      <div className="mm-tabular flex h-9 shrink-0 items-center justify-between gap-4 overflow-hidden whitespace-nowrap border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
         <span>
           {filteredItems.length} proxy{hasActiveFilter ? ` (đã lọc từ ${items.length})` : ''} ·{' '}
           {counts.ok} hoạt động · {counts.error} lỗi · {counts.untested} chưa test

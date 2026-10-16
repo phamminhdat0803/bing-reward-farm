@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { BarChart3, CalendarDays, Check, ChevronDown, Copy, Download, Info, RefreshCw, TriangleAlert } from 'lucide-react'
+import { BarChart3, CalendarDays, Check, ChevronDown, Copy, Download, Info, RefreshCw, TriangleAlert, Search, Users, Coins, TrendingUp, Play, Eye, X } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@renderer/components/ui/table'
+import { Input } from '@renderer/components/ui/input'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/components/ui/dropdown-menu'
 import type { HistoryData, HistoryDay, HistoryTask } from '@shared/types'
 
 const RANGES = [
@@ -13,31 +15,13 @@ const RANGES = [
   { label: 'Tất cả', days: 0 }
 ]
 
+const PROFILE_COLORS = ['var(--brand-blue-deep)', '#22b8a6', '#f0a13a', '#a06bf0', '#e5527a', '#5b8def', '#3fa66a']
 const fmt = (n: number | null | undefined): string => (n == null ? '—' : String(n))
 const dayLabel = (d: string): string => {
   const [, m, dd] = d.split('-')
   return `${dd}/${m}`
 }
 const dowLabel = (d: string): string => ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][new Date(`${d}T00:00:00`).getDay()]
-
-/** Thanh tiến độ nhỏ: done/total */
-function MiniBar({ done, total, tone = 'blue' }: { done: number; total: number | null; tone?: 'blue' | 'green' }): React.JSX.Element {
-  const pct = total && total > 0 ? Math.min(100, Math.round((done / total) * 100)) : done > 0 ? 100 : 0
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-1.5 w-[54px] overflow-hidden rounded-full bg-[var(--hairline)]">
-        <span
-          className={`block h-full rounded-full ${tone === 'green' ? 'bg-emerald-500' : 'bg-[var(--brand-blue-deep)]'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
-      <span className="mm-tabular text-[11.5px] text-[var(--steel)]">
-        {done}
-        {total ? `/${total}` : ''}
-      </span>
-    </span>
-  )
-}
 
 /** Bieu do cot theo ngay (SVG, khong dung thu vien ngoai) — xep chong theo tai khoan khi xem tat ca. */
 function DailyChart({
@@ -63,17 +47,17 @@ function DailyChart({
   if (!byDate.length) return <div className="px-3 py-6 text-center text-[12.5px] text-[var(--steel)]">Chưa có dữ liệu điểm theo ngày.</div>
 
   const W = 980
-  const H = 168
+  const H = 120
   const padL = 44
   const padB = 26
   const padT = 12
   const max = Math.max(30, ...byDate.map((d) => d.total))
   const bw = Math.max(10, Math.min(46, (W - padL - 12) / byDate.length - 8))
-  const colors = ['var(--brand-blue-deep)', '#22b8a6', '#f0a13a', '#a06bf0', '#e5527a', '#5b8def', '#3fa66a']
+  const colors = PROFILE_COLORS
 
   return (
     <div className="relative px-3 pt-2 pb-1">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-[168px] w-full" preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-[120px] w-full" role="img" aria-label="Điểm kiếm được theo ngày, xếp chồng theo tài khoản" preserveAspectRatio="none">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const y = padT + (H - padT - padB) * (1 - f)
           return (
@@ -125,16 +109,21 @@ function DailyChart({
   )
 }
 
-function TaskCell({ t, unit }: { t: HistoryTask; unit: 'search' | 'link' }): React.JSX.Element {
+function TaskCell({ t, kind }: { t: HistoryTask; kind: 'desktop' | 'mobile' | 'daily' | 'earn' }): React.JSX.Element {
   const has = t.done > 0 || (t.gained ?? 0) > 0
+  const search = kind === 'desktop' || kind === 'mobile'
+  const colors = { desktop: 'bg-blue-50 text-blue-700', mobile: 'bg-violet-50 text-violet-700', daily: 'bg-emerald-50 text-emerald-700', earn: 'bg-amber-50 text-amber-700' }
+  const complete = !search && t.total != null && t.total > 0 && t.done >= t.total
   return (
-    <div className="flex flex-col gap-0.5">
-      {unit === 'search' ? (
-        <MiniBar done={t.done} total={null} />
-      ) : (
-        <MiniBar done={t.done} total={t.total ?? null} tone="green" />
-      )}
-      <span className="mm-tabular text-[11px] text-[var(--stone)]">{has ? `${fmt(t.gained)} điểm` : '—'}</span>
+    <div className="flex h-11 min-w-0 flex-col justify-center gap-1">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className={`mm-tabular inline-flex max-w-full items-center gap-1 truncate rounded-full px-2 py-0.5 text-[11.5px] font-medium ${has ? colors[kind] : 'bg-[var(--surface)] text-[var(--stone)]'}`}>
+          {complete ? <Check className="size-3 shrink-0" /> : null}{t.done}{!search && t.total != null ? `/${t.total}` : ''} {search ? 'search' : 'mục'}
+        </span>
+      </div>
+      <span className={`mm-tabular truncate text-[11px] ${(t.gained ?? 0) > 0 ? 'font-medium text-emerald-700' : 'text-[var(--stone)]'}`}>
+        {t.gained != null ? `${t.gained > 0 ? '+' : ''}${t.gained} điểm` : 'Chưa ghi nhận điểm'}
+      </span>
     </div>
   )
 }
@@ -150,12 +139,15 @@ export function HistoryPanel(): React.JSX.Element {
   const [profileId, setProfileId] = useState('')
   const [query, setQuery] = useState('')
   const [onlyWarn, setOnlyWarn] = useState(false)
+  const [showChart, setShowChart] = useState(true)
   const [openRow, setOpenRow] = useState<string | null>(null)
 
   const load = async (days = rangeDays, pid = profileId): Promise<void> => {
     setBusy(true)
     try {
       setData(await window.api.listHistory({ days, profileId: pid || undefined }))
+    } catch {
+      toast.error('Không tải được lịch sử. Vui lòng thử làm mới.')
     } finally {
       setBusy(false)
     }
@@ -214,83 +206,68 @@ export function HistoryPanel(): React.JSX.Element {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Thanh lọc */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
-        <div className="flex items-center gap-1 rounded-[8px] border border-[var(--hairline)] bg-[var(--surface)] p-0.5">
+      {/* Thanh công cụ cố định, các bộ lọc không đẩy bảng khi thay đổi. */}
+      <div data-slot="history-toolbar" className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--hairline-soft)] px-3 [&>*]:shrink-0">
+        <div className="flex items-center gap-0.5 rounded-full border border-[var(--hairline)] bg-[var(--surface)] p-0.5" role="group" aria-label="Khoảng thời gian">
           {RANGES.map((r) => (
-            <button
-              key={r.days}
-              type="button"
-              onClick={() => setRangeDays(r.days)}
-              className={
-                'rounded-[6px] px-2 py-[3px] text-[12px] transition ' +
-                (rangeDays === r.days ? 'bg-[var(--brand-blue-deep)] font-medium text-white' : 'text-[var(--steel)] hover:bg-[var(--surface-soft)]')
-              }
-            >
+            <button key={r.days} type="button" aria-pressed={rangeDays === r.days} onClick={() => setRangeDays(r.days)} className={`h-7 rounded-full px-3 text-[12px] transition-colors ${rangeDays === r.days ? 'bg-[var(--primary)] font-medium text-white' : 'text-[var(--steel)] hover:bg-[var(--canvas)]'}`}>
               {r.label}
             </button>
           ))}
         </div>
-
-        <select
-          className="h-7 rounded-[8px] border border-[var(--hairline)] bg-[var(--surface)] px-1.5 text-[12.5px]"
-          value={profileId}
-          onChange={(e) => setProfileId(e.target.value)}
-        >
-          <option value="">Tất cả tài khoản</option>
-          {(data?.profiles ?? []).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-
-        <input
-          className="h-7 w-[180px] rounded-[8px] border border-[var(--hairline)] bg-[var(--surface)] px-2 text-[12.5px]"
-          placeholder="Tìm ngày / tài khoản / lỗi…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-
-        <label className="flex items-center gap-1.5 text-[12.5px] text-[var(--steel)]">
-          <input type="checkbox" checked={onlyWarn} onChange={(e) => setOnlyWarn(e.target.checked)} />
-          chỉ ngày có cảnh báo
-        </label>
-
-        <Button size="sm" variant="tertiary" className="gap-1.5" disabled={busy} onClick={() => void load()}>
-          <RefreshCw className={busy ? 'size-3.5 animate-spin' : 'size-3.5'} /> Làm mới
-        </Button>
-        <Button size="sm" variant="tertiary" className="gap-1.5" disabled={!rows.length} onClick={() => void exportCsv()}>
-          <Download className="size-3.5" /> Xuất CSV
-        </Button>
-        <span className="ml-auto text-[12px] text-[var(--stone)]">
-          {data?.at ? `Cập nhật ${new Date(data.at).toLocaleTimeString('vi-VN').slice(0, 5)}` : ''}
-        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="tertiary" className="w-[190px] gap-1.5" title="Lọc tài khoản">
+              <Users className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate text-left">{data?.profiles.find((p) => p.id === profileId)?.name ?? 'Tất cả tài khoản'}</span><ChevronDown className="size-3 shrink-0" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[220px]">
+            {[{ id: '', name: 'Tất cả tài khoản' }, ...(data?.profiles ?? [])].map((p) => (
+              <DropdownMenuItem key={p.id} onClick={() => setProfileId(p.id)} className="gap-2"><Check className={`size-3.5 ${profileId === p.id ? '' : 'invisible'}`} />{p.name}</DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="relative w-[210px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--stone)]" />
+          <Input className="h-8 pl-8 pr-7 text-[12px]" placeholder="Tìm ngày, tài khoản, lỗi…" aria-label="Tìm lịch sử" value={query} onChange={(e) => setQuery(e.target.value)} />
+          {query ? <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--stone)]" aria-label="Xoá tìm kiếm" onClick={() => setQuery('')}><X className="size-3.5" /></button> : null}
+        </div>
+        <Button size="sm" variant={onlyWarn ? 'secondary' : 'tertiary'} aria-pressed={onlyWarn} className={`gap-1.5 ${onlyWarn ? 'bg-amber-50 text-amber-700' : ''}`} onClick={() => setOnlyWarn(!onlyWarn)}><TriangleAlert className="size-3.5" />Có cảnh báo</Button>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button size="sm" variant="tertiary" className="gap-1.5" disabled={busy} onClick={() => void load()}><RefreshCw className={busy ? 'size-3.5 animate-spin' : 'size-3.5'} />Làm mới</Button>
+          <Button size="sm" variant="tertiary" className="gap-1.5" disabled={!rows.length} onClick={() => void exportCsv()}><Download className="size-3.5" />Copy CSV</Button>
+        </div>
       </div>
 
       {/* KPI */}
       <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-[var(--hairline-soft)] bg-[var(--surface)]/50 px-3 py-2 md:grid-cols-5">
         {[
-          { label: 'Điểm kiếm được', value: `+${kpi.total}`, tone: 'text-emerald-600' },
-          { label: 'Ngày có dữ liệu', value: String(kpi.dates) },
-          { label: 'Trung bình / ngày', value: `+${kpi.avg}` },
-          { label: 'Lượt chạy', value: String(kpi.runs) },
-          { label: 'Cảnh báo', value: String(kpi.warn), tone: kpi.warn ? 'text-[var(--error)]' : '' }
+          { label: 'Điểm kiếm được', value: `+${kpi.total}`, tone: 'text-emerald-700', icon: Coins, bg: 'bg-emerald-50' },
+          { label: 'Ngày có dữ liệu', value: String(kpi.dates), tone: 'text-blue-700', icon: CalendarDays, bg: 'bg-blue-50' },
+          { label: 'Trung bình / ngày', value: `+${kpi.avg}`, tone: 'text-teal-700', icon: TrendingUp, bg: 'bg-teal-50' },
+          { label: 'Lượt chạy', value: String(kpi.runs), tone: 'text-violet-700', icon: Play, bg: 'bg-violet-50' },
+          { label: 'Cảnh báo', value: String(kpi.warn), tone: kpi.warn ? 'text-amber-700' : 'text-[var(--steel)]', icon: TriangleAlert, bg: 'bg-amber-50' }
         ].map((k) => (
-          <div key={k.label} className="rounded-[10px] border border-[var(--hairline)] bg-[var(--canvas)] px-3 py-1.5">
-            <div className="text-[11.5px] uppercase tracking-wide text-[var(--stone)]">{k.label}</div>
-            <div className={`mm-tabular text-[18px] font-semibold leading-tight ${k.tone ?? ''}`}>{k.value}</div>
+          <div key={k.label} className="flex items-center gap-2.5 rounded-2xl border border-[var(--hairline)] bg-[var(--canvas)] px-3 py-2">
+            <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${k.bg} ${k.tone}`}><k.icon className="size-4" /></span>
+            <div><div className="text-[11.5px] text-[var(--steel)]">{k.label}</div>
+            <div className={`mm-tabular text-[18px] font-semibold leading-tight ${k.tone ?? ''}`}>{k.value}</div></div>
           </div>
         ))}
       </div>
 
-      {/* Biểu đồ */}
       <div className="shrink-0 border-b border-[var(--hairline-soft)] bg-[var(--canvas)]">
-        <div className="flex items-center gap-2 px-3 pt-2 text-[12px] font-semibold uppercase tracking-wide text-[var(--steel)]">
-          <BarChart3 className="size-3.5" /> Điểm kiếm được theo ngày
-          {profileId ? '' : ' (xếp chồng theo tài khoản)'}
+        <div className="flex h-9 items-center gap-2 px-3 text-[12px] text-[var(--steel)]">
+          <BarChart3 className="size-3.5 text-[var(--brand-blue-deep)]" /><span className="font-semibold">Điểm theo ngày</span>
+          <span className="text-[11px] text-[var(--stone)]">{kpi.dates} ngày có dữ liệu</span>
+          <Button size="sm" variant="tertiary" className="ml-auto h-6 gap-1 px-2 text-[11px]" aria-expanded={showChart} aria-controls="history-chart" onClick={() => setShowChart(!showChart)}><ChevronDown className={`size-3 transition-transform ${showChart ? 'rotate-180' : ''}`} />{showChart ? 'Thu biểu đồ' : 'Xem biểu đồ'}</Button>
         </div>
-        <DailyChart rows={rows} profiles={data?.profiles ?? []} />
+        {showChart ? <div id="history-chart">
+          <DailyChart rows={rows} profiles={data?.profiles ?? []} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-2 text-[11px] text-[var(--steel)]">
+            {(data?.profiles ?? []).filter((p) => rows.some((r) => r.profileId === p.id)).map((p) => <span key={p.id} className="flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: PROFILE_COLORS[(data?.profiles ?? []).findIndex((x) => x.id === p.id) % PROFILE_COLORS.length] }} />{p.name}</span>)}
+          </div>
+        </div> : null}
       </div>
 
       {/* Bảng.
@@ -324,8 +301,8 @@ export function HistoryPanel(): React.JSX.Element {
                 const key = `${r.date}|${r.profileId}`
                 const open = openRow === key
                 return (
-                  <>
-                    <TableRow key={key} className={open ? 'bg-[var(--surface)]' : undefined}>
+                  <Fragment key={key}>
+                    <TableRow data-slot="history-summary-row" className={`h-14 [&>td]:py-1 ${open ? 'bg-blue-50/50' : ''}`}>
                       <TableCell>
                         <div className="mm-tabular font-medium">{dayLabel(r.date)}</div>
                         <div className="mm-micro">
@@ -337,16 +314,16 @@ export function HistoryPanel(): React.JSX.Element {
                         <div className="mm-micro truncate">{r.account}</div>
                       </TableCell>
                       <TableCell>
-                        <TaskCell t={r.desktop} unit="search" />
+                        <TaskCell t={r.desktop} kind="desktop" />
                       </TableCell>
                       <TableCell>
-                        <TaskCell t={r.mobile} unit="search" />
+                        <TaskCell t={r.mobile} kind="mobile" />
                       </TableCell>
                       <TableCell>
-                        <TaskCell t={r.daily} unit="link" />
+                        <TaskCell t={r.daily} kind="daily" />
                       </TableCell>
                       <TableCell>
-                        <TaskCell t={r.earn} unit="link" />
+                        <TaskCell t={r.earn} kind="earn" />
                       </TableCell>
                       <TableCell>
                         <div className="mm-tabular text-[13px] font-semibold text-emerald-600">
@@ -356,25 +333,26 @@ export function HistoryPanel(): React.JSX.Element {
                           {fmt(r.pointsFirst)} → {fmt(r.pointsLast)}
                         </div>
                       </TableCell>
-                      <TableCell className="mm-tabular">{r.runs.length}</TableCell>
+                      <TableCell className="mm-tabular"><Badge variant="secondary" className="bg-violet-50 text-violet-700">{r.runs.length} lượt</Badge></TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex h-11 flex-col items-start justify-center gap-1">
                           <Button
                             size="sm"
                             variant="tertiary"
-                            className="h-6 gap-1 px-2 text-[11.5px]"
+                            className="h-6 gap-1 border-[var(--hairline)] px-2 text-[11px] text-[var(--brand-blue-deep)]"
+                            aria-expanded={open}
+                            aria-label={`Chi tiết ${r.name} ngày ${r.date}`}
                             onClick={() => setOpenRow(open ? null : key)}
                           >
-                            <ChevronDown className={open ? 'size-3 rotate-180 transition' : 'size-3 transition'} />
-                            {r.runs.length} lượt
+                            <Eye className="size-3" />{open ? 'Thu chi tiết' : 'Xem chi tiết'}
                           </Button>
                           {r.warnings.length ? (
-                            <Badge variant="warning" className="gap-1">
-                              <TriangleAlert className="size-3" /> {r.warnings.length}
+                            <Badge variant="warning" className="h-4 gap-1 px-1.5 text-[10px]">
+                              <TriangleAlert className="size-3" /> {r.warnings.length} cảnh báo
                             </Badge>
                           ) : (
-                            <Badge variant="success" className="gap-1">
-                              <Check className="size-3" /> sạch
+                            <Badge variant="success" className="h-4 gap-1 px-1.5 text-[10px]">
+                              <Check className="size-3" /> Không cảnh báo
                             </Badge>
                           )}
                         </div>
@@ -383,9 +361,9 @@ export function HistoryPanel(): React.JSX.Element {
                     {open ? (
                       <TableRow key={`${key}-detail`} className="hover:bg-transparent">
                         <TableCell colSpan={9} className="bg-[var(--surface)]/40 p-0">
-                          <div className="grid gap-3 p-3 md:grid-cols-2">
+                          <div className="grid gap-3 p-3 lg:grid-cols-2">
                             {/* Cột 1: các lượt chạy */}
-                            <div>
+                            <div className="min-w-0 rounded-2xl border border-[var(--hairline)] bg-[var(--canvas)] p-3">
                               <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--steel)]">
                                 <Info className="size-3.5" /> Các lượt chạy trong ngày
                               </div>
@@ -396,27 +374,22 @@ export function HistoryPanel(): React.JSX.Element {
                                   {r.runs.map((run, i) => (
                                     <div
                                       key={`${run.at}-${run.kind}-${i}`}
-                                      className="flex items-center gap-2 rounded-[8px] border border-[var(--hairline)] bg-[var(--canvas)] px-2 py-1"
+                                      className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-[var(--surface)] px-2 py-1.5"
                                     >
                                       <span className="mm-tabular shrink-0 text-[11.5px] text-[var(--stone)]">
                                         {new Date(run.at).toLocaleTimeString('vi-VN').slice(0, 5)}
                                       </span>
-                                      <Badge variant="outline">{run.kind}</Badge>
+                                      <Badge variant="secondary" className={run.kind === 'desktop' ? 'bg-blue-50 text-blue-700' : run.kind === 'mobile' ? 'bg-violet-50 text-violet-700' : run.kind === 'daily' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}>
+                                        {{ desktop: 'Desktop', mobile: 'Mobile', daily: 'Daily set', earn: 'Keep earning' }[run.kind] ?? run.kind}
+                                      </Badge>
                                       {run.searches != null ? <span className="mm-micro">{run.searches} search</span> : null}
                                       <span className="mm-micro mm-tabular ml-auto">
                                         {fmt(run.pointsBefore)} → {fmt(run.pointsAfter)}
                                         {run.gained != null ? ` (${run.gained >= 0 ? '+' : ''}${run.gained})` : ''}
                                       </span>
-                                      <span
-                                        className={
-                                          'shrink-0 text-[11px] ' +
-                                          (run.status === 'done' || run.status === 'credited'
-                                            ? 'text-[var(--success-text)]'
-                                            : 'text-[var(--error)]')
-                                        }
-                                      >
-                                        {run.status}
-                                      </span>
+                                      <Badge variant={run.status === 'done' || run.status === 'credited' ? 'success' : 'warning'} className="h-5 text-[10.5px]" title={run.status}>
+                                        {run.status === 'done' ? 'Hoàn tất' : run.status === 'credited' ? 'Đã cộng điểm' : run.status}
+                                      </Badge>
                                     </div>
                                   ))}
                                 </div>
@@ -429,7 +402,7 @@ export function HistoryPanel(): React.JSX.Element {
                             </div>
 
                             {/* Cột 2: daily set + keep earning đã bấm */}
-                            <div className="flex flex-col gap-2">
+                            <div className="min-w-0 rounded-2xl border border-[var(--hairline)] bg-[var(--canvas)] p-3 flex flex-col gap-3">
                               {(
                                 [
                                   ['Daily set', r.daily] as const,
@@ -477,7 +450,7 @@ export function HistoryPanel(): React.JSX.Element {
                         </TableCell>
                       </TableRow>
                     ) : null}
-                  </>
+                  </Fragment>
                 )
               })
             )}
@@ -485,10 +458,9 @@ export function HistoryPanel(): React.JSX.Element {
         </Table>
       </div>
 
-      <div className="shrink-0 border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
-        Lịch sử đọc từ <span className="font-mono">state/&lt;tài khoản&gt;.json</span> — mỗi ngày ghi lại: số search, điểm
-        trước/sau từng task, danh sách link daily set / keep earning đã bấm và mọi lượt chạy. Dữ liệu giữ theo ngày nên
-        xem lại được các hôm trước.
+      <div className="mm-tabular flex h-8 shrink-0 items-center justify-between gap-3 overflow-hidden whitespace-nowrap border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 text-[11.5px] text-[var(--steel)]">
+        <span>{rows.length} bản ghi · {kpi.dates} ngày · {new Set(rows.map((r) => r.profileId)).size} tài khoản</span>
+        <span className="text-[var(--stone)]">{busy ? 'Đang tải…' : data?.at ? `Cập nhật ${new Date(data.at).toLocaleTimeString('vi-VN').slice(0, 5)}` : 'Chưa tải dữ liệu'}</span>
       </div>
     </div>
   )
