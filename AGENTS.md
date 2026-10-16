@@ -124,9 +124,29 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
+## Menu "Lịch sử" (2026-10-16)
+
+Nguồn dữ liệu: `%APPDATA%\bing-reward-farm\state\<profileId>.json` → `days[<YYYY-MM-DD>]`, mỗi ngày có:
+`desktop|mobile: {searches, pointsBefore, pointsAfter}` · `daily|earn: {items[] (label/href/visited/reward|points), pointsBefore, pointsAfter}`
+· `runs: [{at, summary:{<kind>:{kind, searches, status, pointsBefore, pointsAfter, counterBefore/After}}}]` · `usedQueries`.
+
+- `src/main/history.ts` → `listHistory({profileId?, days?})`: gom theo ngày, tính `gained` = điểm cuối − điểm đầu ghi nhận được
+  (min `pointsBefore` / max `pointsAfter` từ runs + các mục task), `warnings` = run có status khác `done|credited`.
+  **Không parse log** (log chỉ dùng khi cần soi chi tiết).
+- IPC `history:list` + preload `listHistory`; type dùng chung ở `src/shared/types.ts` (`HistoryDay/HistoryTask/HistoryRun/HistoryItem/HistoryData`).
+- UI `HistoryPanel.tsx` (tab **Lịch sử**):
+  - Lọc: **7 / 14 / 30 ngày / Tất cả** · chọn tài khoản · ô tìm kiếm (ngày / tên / email / lỗi) · chỉ ngày có cảnh báo · Làm mới · **Xuất CSV** (copy clipboard).
+  - KPI: điểm kiếm được · số ngày có dữ liệu · TB/ngày · lượt chạy · số cảnh báo.
+  - **Biểu đồ SVG** cột theo ngày, xếp chồng theo tài khoản (màu riêng), trục tung + tooltip hover; **không dùng thư viện ngoài**.
+  - **Bảng**: Ngày · Tài khoản · Search desktop · Search mobile · Daily set · Keep earning · Điểm trong ngày (kèm before→after) ·
+    Lượt chạy · Chi tiết. Mở rộng từng dòng: **các lượt chạy** (giờ, kind, số search, điểm, status) + **link daily set / keep earning đã bấm** (✓/○, +điểm) + nút **Copy JSON ngày này** (gửi agent khi cần).
+- Kiểm chứng 2026-10-16 (dữ liệu thật 4 ngày × 5 acc): KPI `+1329 điểm · 4 ngày · TB +332 · 80 lượt · 23 cảnh báo`;
+  mở rộng dòng 16/10 Đạt Phạm: `09:22 desktop 8 search 3788→3812 (+24) done`, `10:42 mobile (+24) done`,
+  `13:21 daily 3869→3899 (+30) credited`, daily set `3/3 · 30 điểm` với 3 link ✓.
+  Dev hook: `BRF_TAB=history` (mở tab) · `BRF_HIST_EXPAND=1` (mở 1 dòng chi tiết + chụp ảnh).
+
 ## Quy ước UI
 ### Quy uoc UI chong "giat/nhay" (bat buoc — 2026-10-16)
-
 Hai bug nguoi dung bao trong ngay 16/10, deu thuoc nhom "layout khong on dinh":
 
 1. **Khong dung `hover:scale-*` (hay bat ky transform doi hinh hoc) tren phan tu dang neo popover/dropdown.**
