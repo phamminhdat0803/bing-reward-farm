@@ -6,6 +6,7 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@renderer/components/ui/dropdown-menu'
 import { Switch } from '@renderer/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@renderer/components/ui/select'
 import { AppToolbar } from '@renderer/components/AppToolbar'
 import { AccountsTable } from '@renderer/components/AccountsTable'
 import { AccountDialog } from '@renderer/components/AccountDialog'
@@ -455,7 +456,7 @@ export default function App(): React.JSX.Element {
                 <Settings2 className="size-3.5" /> Cài đặt chạy
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[300px] p-2">
+            <DropdownMenuContent align="end" className="w-[356px] p-2">
               <DropdownMenuItem className="mb-1 gap-2" onSelect={() => setTab('settings')}><Settings2 className="size-3.5" /> Cài đặt kịch bản thông minh</DropdownMenuItem>
               <div className="grid gap-1">
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
@@ -494,11 +495,10 @@ export default function App(): React.JSX.Element {
                   <span className="text-[12.5px]" title="Kiểm tra nhiệm vụ theo mục tiêu và bộ quy tắc đang áp dụng">
                     ⏱ Tự động chạy
                   </span>
-                  <select
-                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
+                  <Select
                     value={String(auto?.everyMs ?? settings?.autoEveryMs ?? 0)}
-                    onChange={async (e) => {
-                      const ms = Number(e.target.value)
+                    onValueChange={async (value) => {
+                      const ms = Number(value)
                       const st = await window.api.autoSetEvery(ms)
                       setAuto({ ...(auto ?? { cycles: 0, running: false, lastCycleAt: null, lastCycleResult: null, remediations: 0 }), ...st })
                       toast.info(
@@ -508,20 +508,22 @@ export default function App(): React.JSX.Element {
                       )
                     }}
                   >
-                    <option value={0}>Tắt</option>
-                    <option value={60000}>Mỗi 1 phút</option>
-                    <option value={900000}>Mỗi 15 phút</option>
-                    <option value={3600000}>Mỗi 1 giờ</option>
-                    <option value={10800000}>Mỗi 3 giờ</option>
-                  </select>
+                    <SelectTrigger aria-label="Tự động chạy" className="h-7 w-[148px] shrink-0"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Tắt</SelectItem>
+                      <SelectItem value="60000">Mỗi 1 phút</SelectItem>
+                      <SelectItem value="900000">Mỗi 15 phút</SelectItem>
+                      <SelectItem value="3600000">Mỗi 1 giờ</SelectItem>
+                      <SelectItem value="10800000">Mỗi 3 giờ</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Cập nhật song song</span>
-                  <select
-                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
-                    value={settings?.refreshParallel ?? 3}
-                    onChange={async (e) => {
-                      const v = Number(e.target.value)
+                  <Select
+                    value={String(settings?.refreshParallel ?? 3)}
+                    onValueChange={async (value) => {
+                      const v = Number(value)
                       const next = await window.api.setSettings({ refreshParallel: v })
                       setSettingsState(next)
                       toast.info(
@@ -531,20 +533,20 @@ export default function App(): React.JSX.Element {
                       )
                     }}
                   >
-                    {[1, 2, 3, 4, 5, 6, 8].map((n) => (
-                      <option key={n} value={n}>
-                        {n === 1 ? 'Tuần tự' : `${n} acc`}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger aria-label="Cập nhật song song" className="h-7 w-[148px] shrink-0"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                        <SelectItem key={n} value={String(n)}>{n === 1 ? 'Tuần tự' : `${n} acc`}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Giới hạn tổng (tuỳ chọn)</span>
-                  <select
-                    className="h-6 shrink-0 rounded-md border border-[var(--hairline)] bg-[var(--surface)] px-1 text-[12.5px]"
-                    value={queueMax}
-                    onChange={async (e) => {
-                      const v = Number(e.target.value)
+                  <Select
+                    value={String(queueMax)}
+                    onValueChange={async (value) => {
+                      const v = Number(value)
                       setQueueMax(v)
                       const next = await window.api.setSettings({ maxParallelRuns: v })
                       setSettingsState(next)
@@ -555,13 +557,14 @@ export default function App(): React.JSX.Element {
                       )
                     }}
                   >
-                    <option value={0}>Không giới hạn</option>
-                    {[2, 3, 4, 5, 6].map((n) => (
-                      <option key={n} value={n}>
-                        {n} acc
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger aria-label="Giới hạn tổng" className="h-7 w-[148px] shrink-0"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Không giới hạn</SelectItem>
+                      {[2, 3, 4, 5, 6].map((n) => (
+                        <SelectItem key={n} value={String(n)}>{n} acc</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </DropdownMenuContent>

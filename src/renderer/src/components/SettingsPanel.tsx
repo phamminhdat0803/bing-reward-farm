@@ -9,9 +9,15 @@ import { Label } from './ui/label'
 import { Badge } from './ui/badge'
 import { Switch } from './ui/switch'
 import { ScrollArea } from './ui/scroll-area'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 
-const selectClass = 'h-9 w-full rounded-[8px] border border-[var(--hairline)] bg-white px-2 text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue-deep)]'
 const statusNames = { legacy: 'Chưa bật', ready: 'Sẵn sàng', waiting: 'Đang chờ', paused: 'Tạm dừng', 'goal-met': 'Đạt mục tiêu' }
+const weekdays = [
+  { short: 'CN', label: 'Chủ nhật' }, { short: 'T2', label: 'Thứ 2' },
+  { short: 'T3', label: 'Thứ 3' }, { short: 'T4', label: 'Thứ 4' },
+  { short: 'T5', label: 'Thứ 5' }, { short: 'T6', label: 'Thứ 6' }, { short: 'T7', label: 'Thứ 7' }
+]
 
 function NumberField({ label, value, onChange, min = 0, max = 200, hint }: {
   label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; hint?: string
@@ -98,16 +104,20 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
           <aside className="space-y-3">
             <section className="rounded-[16px] border border-[var(--hairline)] bg-white p-3">
               <Label htmlFor="policy-scope" className="mb-2 text-[12px]">Đang chỉnh cho</Label>
-              <select id="policy-scope" className={selectClass} value={scope} onChange={e => setScope(e.target.value)}>
-                <option value="default">Mặc định chung</option>
-                {rows.map(row => <option key={row.id} value={row.id}>{row.profile.name}{Object.hasOwn(config.overrides, row.id) ? ' · riêng' : ''}</option>)}
-              </select>
+              <Select value={scope} onValueChange={setScope}>
+                <SelectTrigger id="policy-scope"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Mặc định chung</SelectItem>
+                  {rows.map(row => <SelectItem key={row.id} value={row.id}>{row.profile.name}{Object.hasOwn(config.overrides, row.id) ? ' · riêng' : ''}</SelectItem>)}
+                </SelectContent>
+              </Select>
               {scope !== 'default' ? <div className="mt-2"><Toggle label="Dùng cấu hình riêng" checked={own} onChange={value => {
                 const overrides = { ...config.overrides }
                 if (value) overrides[scope] = structuredClone(config.defaults)
                 else delete overrides[scope]
                 setConfig({ ...config, overrides }); setDirty(true)
               }} /></div> : <p className="mm-micro mt-2 leading-relaxed">Áp dụng cho tài khoản chưa có cấu hình riêng.</p>}
+              {!editable ? <p className="mm-micro mt-2 leading-relaxed">Đang dùng mặc định chung. Bật “Dùng cấu hình riêng” để chỉnh tài khoản này.</p> : null}
             </section>
             <section className="rounded-[16px] border border-[var(--hairline)] bg-white p-3">
               <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold"><Sparkles className="size-3.5" /> Mẫu kịch bản</div>
@@ -135,7 +145,18 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
                 <div className="grid gap-1.5"><Label htmlFor="policy-end" className="text-[12px]">Đến giờ</Label><Input id="policy-end" type="time" value={rule.endTime} onChange={e => update({ endTime: e.target.value })} /></div>
                 <NumberField label="Cách phiên (phút)" value={rule.sessionGapMinutes} max={1440} onChange={sessionGapMinutes => update({ sessionGapMinutes })} />
               </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">{['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day, i) => <Button key={day} size="sm" variant={rule.weekdays.includes(i) ? 'secondary' : 'tertiary'} aria-pressed={rule.weekdays.includes(i)} onClick={() => update({ weekdays: rule.weekdays.includes(i) ? rule.weekdays.filter(d => d !== i) : [...rule.weekdays, i] })}>{day}</Button>)}</div>
+              <div className="mt-4 space-y-2">
+                <Label id="policy-weekdays-label" className="text-[12px]">Ngày trong tuần</Label>
+                <ToggleGroup type="multiple" aria-labelledby="policy-weekdays-label" aria-describedby="policy-weekdays-summary" disabled={!editable} value={rule.weekdays.map(String)} onValueChange={values => {
+                  if (!values.length) { toast.info('Cần chọn ít nhất một ngày trong tuần.'); return }
+                  update({ weekdays: values.map(Number).sort((a, b) => a - b) })
+                }} className="grid grid-cols-7">
+                  {weekdays.map((day, i) => <ToggleGroupItem key={day.short} value={String(i)} aria-label={day.label} title={day.label} className="px-1">
+                    <Check aria-hidden="true" className={`size-3 transition-opacity motion-reduce:transition-none ${rule.weekdays.includes(i) ? 'opacity-100' : 'opacity-0'}`} />{day.short}
+                  </ToggleGroupItem>)}
+                </ToggleGroup>
+                <p id="policy-weekdays-summary" aria-live="polite" className="mm-micro min-h-[18px] leading-relaxed">{rule.weekdays.length === 7 ? 'Đã chọn cả tuần' : `Đã chọn: ${weekdays.filter((_, i) => rule.weekdays.includes(i)).map(day => day.short).join(', ')}`}. Bấm ngày để chọn hoặc bỏ chọn.</p>
+              </div>
               <p className="mm-micro mt-2">Hai giờ giống nhau = cả ngày. Hỗ trợ khung giờ qua nửa đêm.</p>
               <div className="mt-3 grid gap-1.5"><Label htmlFor="policy-pause" className="text-[12px]">Tạm dừng tài khoản đến (tuỳ chọn)</Label><Input id="policy-pause" type="datetime-local" value={rule.pauseUntil ? new Date(new Date(rule.pauseUntil).getTime() - new Date(rule.pauseUntil).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''} onChange={e => update({ pauseUntil: e.target.value ? new Date(e.target.value).toISOString() : null })} /></div>
             </Section>
@@ -143,10 +164,10 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
               <Toggle label="Áp dụng quy tắc Bot score" checked={rule.botRule.enabled} onChange={enabled => updateBot({ enabled })} />
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <NumberField label="Khi score từ (%)" value={rule.botRule.threshold} min={0} max={100} onChange={threshold => updateBot({ threshold })} />
-                <div className="grid content-start gap-1.5"><Label htmlFor="policy-bot-action" className="text-[12px]">Thực hiện</Label><select id="policy-bot-action" className={selectClass} value={rule.botRule.action} onChange={e => updateBot({ action: e.target.value as 'pause' | 'reduce' })}><option value="reduce">Giảm mục tiêu search</option><option value="pause">Tạm dừng toàn bộ nhiệm vụ</option></select></div>
+                <div className="grid content-start gap-1.5"><Label htmlFor="policy-bot-action" className="text-[12px]">Thực hiện</Label><Select disabled={!editable} value={rule.botRule.action} onValueChange={value => updateBot({ action: value as 'pause' | 'reduce' })}><SelectTrigger id="policy-bot-action"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="reduce">Giảm mục tiêu search</SelectItem><SelectItem value="pause">Tạm dừng toàn bộ nhiệm vụ</SelectItem></SelectContent></Select></div>
                 <NumberField label="Mục tiêu khi score cao (%)" value={rule.botRule.targetPercent} min={0} max={100} onChange={targetPercent => updateBot({ targetPercent })} />
                 <NumberField label="Tuổi dữ liệu tối đa (ngày)" value={rule.botRule.maxAgeDays} min={1} max={365} onChange={maxAgeDays => updateBot({ maxAgeDays })} hint="Tính theo thời gian nguồn API, không phải lần vừa đọc." />
-                <div className="col-span-2 grid gap-1.5"><Label htmlFor="policy-bot-unknown" className="text-[12px]">Khi score thiếu, lỗi hoặc quá cũ</Label><select id="policy-bot-unknown" className={selectClass} value={rule.botRule.unknown} onChange={e => updateBot({ unknown: e.target.value as 'pause' | 'base' })}><option value="pause">Tạm dừng để kiểm tra</option><option value="base">Dùng mục tiêu cơ bản</option></select></div>
+                <div className="col-span-2 grid gap-1.5"><Label htmlFor="policy-bot-unknown" className="text-[12px]">Khi score thiếu, lỗi hoặc quá cũ</Label><Select disabled={!editable} value={rule.botRule.unknown} onValueChange={value => updateBot({ unknown: value as 'pause' | 'base' })}><SelectTrigger id="policy-bot-unknown"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pause">Tạm dừng để kiểm tra</SelectItem><SelectItem value="base">Dùng mục tiêu cơ bản</SelectItem></SelectContent></Select></div>
               </div>
             </Section>
             <Section title="Điều kiện dừng & khôi phục" subtitle="Yêu cầu xác minh hoặc giới hạn trên trang luôn dừng để người dùng xử lý; không tự vượt xác minh." icon={<ShieldCheck className="size-4" />}>
@@ -154,7 +175,7 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <NumberField label="Thời gian nghỉ sau lỗi (phút)" value={rule.cooldownMinutes} min={1} max={1440} onChange={cooldownMinutes => update({ cooldownMinutes })} />
                 <NumberField label="Số lỗi tối đa / ngày" value={rule.maxFailuresPerDay} min={1} max={20} onChange={maxFailuresPerDay => update({ maxFailuresPerDay })} />
-                <div className="grid content-start gap-1.5"><Label htmlFor="policy-proxy" className="text-[12px]">Khi toàn bộ proxy lỗi</Label><select id="policy-proxy" className={selectClass} value={rule.proxyRecovery} onChange={e => update({ proxyRecovery: e.target.value as 'pause' | 'repair' })}><option value="pause">Dừng và chờ kiểm tra</option><option value="repair">Kiểm tra kho & gán lại</option></select></div>
+                <div className="grid content-start gap-1.5"><Label htmlFor="policy-proxy" className="text-[12px]">Khi toàn bộ proxy lỗi</Label><Select disabled={!editable} value={rule.proxyRecovery} onValueChange={value => update({ proxyRecovery: value as 'pause' | 'repair' })}><SelectTrigger id="policy-proxy"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pause">Dừng và chờ kiểm tra</SelectItem><SelectItem value="repair">Kiểm tra kho & gán lại</SelectItem></SelectContent></Select></div>
                 <NumberField label="Số proxy khi tự gán lại" value={rule.proxyCount} min={1} max={20} onChange={proxyCount => update({ proxyCount })} />
               </div>
             </Section>
@@ -164,7 +185,7 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
           </fieldset>
         </div>
         <Section title="Lịch kiểm tra tự động của ứng dụng" subtitle="Lịch chỉ kiểm tra điều kiện; khung giờ, khoảng cách phiên và ngân sách vẫn được áp dụng. Tắt lịch vẫn giữ giới hạn khi bạn bấm Chạy." icon={<Clock3 className="size-4" />}>
-          <label className="flex items-center justify-between gap-4 text-[12.5px]">Chu kỳ kiểm tra<select aria-label="Chu kỳ kiểm tra tự động" className={selectClass + ' max-w-[220px]'} value={every} onChange={e => { setEvery(Number(e.target.value)); setDirty(true) }}><option value={0}>Tắt lịch tự động</option><option value={60000}>Mỗi 1 phút</option><option value={900000}>Mỗi 15 phút</option><option value={3600000}>Mỗi 1 giờ</option><option value={10800000}>Mỗi 3 giờ</option></select></label>
+          <div className="flex items-center justify-between gap-4"><Label htmlFor="policy-every" className="text-[12.5px]">Chu kỳ kiểm tra</Label><Select value={String(every)} onValueChange={value => { setEvery(Number(value)); setDirty(true) }}><SelectTrigger id="policy-every" aria-label="Chu kỳ kiểm tra tự động" className="max-w-[220px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="0">Tắt lịch tự động</SelectItem><SelectItem value="60000">Mỗi 1 phút</SelectItem><SelectItem value="900000">Mỗi 15 phút</SelectItem><SelectItem value="3600000">Mỗi 1 giờ</SelectItem><SelectItem value="10800000">Mỗi 3 giờ</SelectItem></SelectContent></Select></div>
         </Section>
         <section className="overflow-hidden rounded-[16px] border border-[var(--hairline)] bg-white">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--hairline-soft)] p-4"><div><h3 className="text-[14px] font-semibold">Dự kiến cho từng tài khoản</h3><p className="mm-micro mt-1">Nhấn Xem trước sau khi chỉnh. Không mở trình duyệt, không gửi search.</p></div><Button variant="tertiary" size="sm" disabled={previewing} onClick={() => void preview()}>{previewing ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}Xem trước</Button></div>
