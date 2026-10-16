@@ -293,20 +293,22 @@ export function HistoryPanel(): React.JSX.Element {
         <DailyChart rows={rows} profiles={data?.profiles ?? []} />
       </div>
 
-      {/* Bảng */}
+      {/* Bảng.
+          BUG 2026-10-16: cot de width co dinh (px) + cot cuoi khong co width => cua so rong thi cot van nho,
+          moi khoang trong don het vao cot "Chi tiet". Fix: table-fixed + width theo % de cot tu gian theo be rong. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <Table className="min-w-[1080px]">
+        <Table data-slot="history-table" className="w-full min-w-[1100px] table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-[var(--surface)]">
-              <TableHead className="w-[92px]">Ngày</TableHead>
-              <TableHead className="w-[190px]">Tài khoản</TableHead>
-              <TableHead className="w-[150px]">Search desktop</TableHead>
-              <TableHead className="w-[140px]">Search mobile</TableHead>
-              <TableHead className="w-[150px]">Daily set</TableHead>
-              <TableHead className="w-[150px]">Keep earning</TableHead>
-              <TableHead className="w-[120px]">Điểm trong ngày</TableHead>
-              <TableHead className="w-[90px]">Lượt chạy</TableHead>
-              <TableHead>Chi tiết</TableHead>
+              <TableHead className="w-[7%]">Ngày</TableHead>
+              <TableHead className="w-[16%]">Tài khoản</TableHead>
+              <TableHead className="w-[12%]">Search desktop</TableHead>
+              <TableHead className="w-[11%]">Search mobile</TableHead>
+              <TableHead className="w-[11%]">Daily set</TableHead>
+              <TableHead className="w-[11%]">Keep earning</TableHead>
+              <TableHead className="w-[12%]">Điểm trong ngày</TableHead>
+              <TableHead className="w-[7%]">Lượt chạy</TableHead>
+              <TableHead className="w-[13%]">Chi tiết</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

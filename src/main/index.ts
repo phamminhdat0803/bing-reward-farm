@@ -501,6 +501,49 @@ if (process.env.BRF_TEST_ALL) {
     })
   }
 
+  // Tien ich dev: BRF_HIST_COLS=1 -> do be rong tung cot tab Lich su o 2 co cua so (chung minh cot tu gian)
+  if (process.env.BRF_HIST_COLS) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const measure = async (): Promise<{ window: number; total: number; cols: number[] } | null> =>
+            (await wc.executeJavaScript(`(() => {
+              const btn = [...document.querySelectorAll('nav button')].find((b) => /Lịch sử/.test(b.textContent || ''))
+              if (btn && !document.querySelector('[data-slot="history-table"]')) btn.click()
+              const table = document.querySelector('[data-slot="history-table"]')
+              const ths = table ? [...table.querySelectorAll('thead th')] : []
+              if (!table || !ths.length) return null
+              return {
+                window: Math.round(window.innerWidth),
+                total: Math.round(table.getBoundingClientRect().width),
+                cols: ths.map((t) => Math.round(t.getBoundingClientRect().width))
+              }
+            })()`)) as { window: number; total: number; cols: number[] } | null
+
+          await new Promise((r) => setTimeout(r, 2500))
+          const wide = await measure()
+          console.log(`[hist-cols] cua so ${wide?.window}px: tong bang ${wide?.total}px, cot = ${JSON.stringify(wide?.cols)}`)
+          mainWindow?.setSize(1180, 900)
+          await new Promise((r) => setTimeout(r, 1500))
+          const narrow = await measure()
+          console.log(`[hist-cols] cua so ${narrow?.window}px: tong bang ${narrow?.total}px, cot = ${JSON.stringify(narrow?.cols)}`)
+          if (wide && narrow) {
+            const grew = wide.cols.map((w, i) => w - (narrow.cols[i] ?? 0))
+            console.log(`[hist-cols] chenh lech tung cot khi rong hon: ${JSON.stringify(grew)} => ${grew.slice(1, -1).every((g) => g > 3) ? 'COT TU GIAN THEO BE RONG' : 'VAN KHONG GIAN'}`)
+          }
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const file = join(dir, `shot-hist-cols-${Date.now()}.png`)
+          writeFileSync(file, img.toPNG())
+          console.log(`[hist-cols] anh: ${file}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
   // Tien ich dev: BRF_HIST_EXPAND=1 -> mo tab Lich su, bam mo 1 dong chi tiet roi chup anh
   if (process.env.BRF_HIST_EXPAND) {
     mainWindow.webContents.once('did-finish-load', () => {

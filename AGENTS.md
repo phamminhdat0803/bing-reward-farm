@@ -144,6 +144,7 @@ Nguồn dữ liệu: `%APPDATA%\bing-reward-farm\state\<profileId>.json` → `da
   mở rộng dòng 16/10 Đạt Phạm: `09:22 desktop 8 search 3788→3812 (+24) done`, `10:42 mobile (+24) done`,
   `13:21 daily 3869→3899 (+30) credited`, daily set `3/3 · 30 điểm` với 3 link ✓.
   Dev hook: `BRF_TAB=history` (mở tab) · `BRF_HIST_EXPAND=1` (mở 1 dòng chi tiết + chụp ảnh).
+  **Bẫy cột bảng**: đừng để width cột bằng px cố định + cột cuối không width — cửa sổ rộng thì mọi khoảng trống dồn hết vào cột cuối, các cột dữ liệu vẫn nhỏ. Dùng `table-fixed` + width theo **%** (tổng 100%) để cột tự giãn: đo được ở 1664px cột `[116,266,200,183,183,183,200,116,216]`, ở 1184px `[83,189,142,130,130,130,142,83,154]` — mọi cột tăng 33–77px. Hook đo: `BRF_HIST_COLS=1` (đo ở 2 cỡ cửa sổ).
 
 ## Quy ước UI
 ### Quy uoc UI chong "giat/nhay" (bat buoc — 2026-10-16)
