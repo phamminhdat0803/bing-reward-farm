@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type {
+import type { ProxyStat,
   HistoryTask,
   AppSettings,
   DetectedBrowser,
@@ -271,6 +271,21 @@ const api = {
   stopRun: (id: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('run:stop', id),
   /** Xoá lệnh chờ (1 acc hoặc tất cả) — dùng khi badge "N lệnh chờ" bị treo */
   clearQueue: (profileId?: string): Promise<{ cleared: number }> => ipcRenderer.invoke('run:clearQueue', profileId),
+
+  // ---------- Lịch sử proxy + export ----------
+  /** Thống kê test từng proxy: số lần sống/chết, tỉ lệ, chuỗi thất bại, cờ "10 lần đều chết" */
+  proxyStats: (): Promise<ProxyStat[]> => ipcRenderer.invoke('proxy:stats'),
+  /** Xoá lịch sử test (1 hoặc nhiều proxy; bỏ trống = tất cả) */
+  proxyHistoryClear: (ids?: string[]): Promise<{ cleared: number }> => ipcRenderer.invoke('proxy:historyClear', ids),
+  /** Lưu file qua hộp thoại Save (CSV / JSON / log) */
+  exportSave: (opts: {
+    name: string
+    content: string
+    ext?: 'csv' | 'json' | 'txt'
+  }): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke('export:save', opts),
+  /** Log tài khoản dạng text (số liệu, tiến độ, proxy, lịch sử, hồ sơ, log thô) */
+  exportAccountsLog: (profileId?: string): Promise<string> => ipcRenderer.invoke('export:accountsLog', profileId),
   runState: (id: string): Promise<{ running: boolean; kinds: string[]; log: LogLine[] }> =>
     ipcRenderer.invoke('run:state', id),
 

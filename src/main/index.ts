@@ -1,6 +1,8 @@
+import { proxyStats, clearProxyHistory } from './proxy-history'
+import { buildAccountsLog } from './export-log'
 import { join } from 'node:path'
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from './profiles'
 import { browserState, closeBrowser, openBrowser, verifyRunningBrowsers } from './browsers'
@@ -496,6 +498,44 @@ if (process.env.BRF_TEST_ALL) {
           } catch (e) {
             console.error('[dialog-phone] loi', e)
           }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_PROXY_HIST=1 -> test 1 lo proxy de sinh lich su, mo tab Proxy va chup anh
+  if (process.env.BRF_PROXY_HIST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          const n = Number(process.env.BRF_PROXY_HIST_N ?? 12)
+          const ids = listProxies()
+            .slice(0, n)
+            .map((p) => p.id)
+          console.log(`[proxy-hist] test ${ids.length} proxy de sinh lich su…`)
+          await testAll(10, ids, (p) => broadcast('proxies:testProgress', p))
+          const st = proxyStats(listProxies().map((p) => ({ id: p.id, url: p.url, label: p.label })))
+          const tested = st.filter((s) => s.total > 0)
+          console.log(
+            `[proxy-hist] co lich su: ${tested.length}/${st.length} proxy · tong lan test ${tested.reduce((a, s) => a + s.total, 0)} · che 10 lan lien tiep: ${st.filter((s) => s.dead10).length}`
+          )
+          for (const s of tested.slice(0, 6)) {
+            console.log(
+              `[proxy-hist]   ${s.label}: song ${s.ok}/${s.total} (${s.successRate}%) · loi lien tiep ${s.failStreak}${s.dead10 ? ' · NEN XOA' : ''}`
+            )
+          }
+          await wc.executeJavaScript(
+            `(() => { const b = [...document.querySelectorAll('nav button')].find((x) => /Proxy/.test(x.textContent || '')); if (b) b.click(); return 'ok' })()`
+          )
+          await new Promise((r) => setTimeout(r, 2500))
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const file = join(dir, `shot-proxy-hist-${Date.now()}.png`)
+          writeFileSync(file, img.toPNG())
+          console.log(`[proxy-hist] anh: ${file}`)
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
     })
@@ -1364,6 +1404,36 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
     return out
   })
   ipcMain.handle('auto:pickClean', (_e, n?: number) => pickCleanProxies(n ?? 3))
+
+  // ---------- IPC: LICH SU PROXY + EXPORT ----------
+  /** Thong ke test tung proxy: so lan song/chet, ti le, chuoi that bai, co nen xoa khong */
+  ipcMain.handle('proxy:stats', () =>
+    proxyStats(listProxies().map((p) => ({ id: p.id, url: p.url, label: p.label })))
+  )
+  ipcMain.handle('proxy:historyClear', (_e, ids?: string[]) => clearProxyHistory(ids))
+  /** Xuat file qua hop thoai Luu file (CSV/JSON/log deu dung chung) */
+  ipcMain.handle(
+    'export:save',
+    async (_e, { name, content, ext }: { name: string; content: string; ext?: string }) => {
+      try {
+        const win = BrowserWindow.getFocusedWindow() ?? mainWindow ?? undefined
+        const filters =
+          ext === 'csv'
+            ? [{ name: 'CSV', extensions: ['csv'] }]
+            : ext === 'json'
+              ? [{ name: 'JSON', extensions: ['json'] }]
+              : [{ name: 'Text', extensions: ['txt', 'log'] }]
+        const r = await dialog.showSaveDialog(win as BrowserWindow, { defaultPath: name, filters })
+        if (r.canceled || !r.filePath) return { ok: false, canceled: true }
+        writeFileSync(r.filePath, content, 'utf8')
+        return { ok: true, path: r.filePath }
+      } catch (e) {
+        return { ok: false, error: String((e as Error).message).slice(0, 200) }
+      }
+    }
+  )
+  /** Log tai khoan dang text de nguoi dung xem / gui agent */
+  ipcMain.handle('export:accountsLog', () => buildAccountsLog())
 
   // ---------- IPC: LICH SU (doc state/<id>.json) ----------
   ipcMain.handle('history:list', (_e, opts?: { profileId?: string; days?: number }) => listHistory(opts ?? {}))

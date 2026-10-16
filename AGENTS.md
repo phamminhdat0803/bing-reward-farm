@@ -124,6 +124,33 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
+## Lịch sử PROXY + export (2026-10-16)
+
+Yêu cầu người dùng: rà soát proxy sống/chết, **10 lần test đều chết thì cảnh báo để xoá**, có chỗ lọc xem số lần
+thành công/thất bại, **export proxy** và **export log tài khoản**.
+
+- `src/main/proxy-history.ts` → `%APPDATA%\bing-reward-farm\proxy-history.json`:
+  mỗi proxy lưu `{ url, label, firstAt, ok, fail, attempts[≤40] }`; `attempts[]` = `{at, ok, status, latency, ip, country, error}`.
+  - `recordProxyTest(id, url, label, result, status)` — gọi từ **3 chỗ**: `testAndSave` (test 1 proxy),
+    `testAll` (Kiểm tra tất cả / kiểm tra đã chọn) và **vòng health 45s** (chỉ ghi khi `checkedAt` < 5s để không ghi lại kết quả cache).
+  - `proxyStats(list)` → `{ok, fail, total, successRate, failStreak, dead10, lastAt/lastOk/lastError/lastLatency, attempts}`;
+    `dead10` = **10 lần gần nhất đều chết** ⇒ nên xoá. `clearProxyHistory(ids?)`, `pruneProxyHistory(aliveIds)`.
+- IPC/preload: `proxy:stats`, `proxy:historyClear`, `export:save` (hộp thoại **Lưu file** của Electron, dùng chung CSV/JSON/log),
+  `export:accountsLog`.
+- **UI tab Proxy** (`ProxyPanel.tsx`):
+  - Cột mới **“Lịch sử test”**: `N / M lần sống` + badge **% thành công** (xanh ≥50%, vàng >0, đỏ 0%) +
+    badge `chết 10 lần liên tiếp` (đỏ) / `lỗi ×N` (vàng) + link **“xem N lần test”** mở hộp thoại liệt kê từng lần
+    (giờ, SỐNG/CHẾT, ping, IP, quốc gia, lỗi) kèm nút **Xoá lịch sử proxy này**.
+  - Bộ lọc **Trạng thái → “Chết 10 lần liên tiếp (N)”**; nút **“Xoá chết ≥10 (N)”** (xác nhận, xoá cả lịch sử test).
+  - Nút **Xuất CSV** (kèm thống kê test), **Xuất JSON** (kèm `stats.attempts` để backup/gửi agent),
+    **Xuất log tài khoản**; menu **Thao tác khác → Xuất log tài khoản (.log)**.
+- `src/main/export-log.ts` → `buildAccountsLog({profileId?, logLines?})`: text gồm cài đặt chung, và mỗi tài khoản:
+  id/trình duyệt/CDP, hạn mức, **proxy chính + dự phòng + chuỗi thực tế**, số liệu đã lưu (điểm, level, tiến độ từng task,
+  mục bị khoá), **lịch sử 5 ngày gần nhất**, **hồ sơ escalation** của acc, và **25 dòng log thô** cuối.
+- Kiểm chứng 2026-10-16: chạy `BRF_PROXY_HIST=1 BRF_PROXY_HIST_N=14` → `co lich su: 14/239 proxy · tổng 14 lần test`;
+  ví dụ `171.250.218.15:1080: sống 1/1 (100%)`, `42.112.52.16:20001: sống 0/1 (0%) · lỗi liên tiếp 1`.
+  UI hiện đúng cột lịch sử + 3 nút export + nút xoá chết ≥10.
+
 ## Menu "Lịch sử" (2026-10-16)
 
 Nguồn dữ liệu: `%APPDATA%\bing-reward-farm\state\<profileId>.json` → `days[<YYYY-MM-DD>]`, mỗi ngày có:

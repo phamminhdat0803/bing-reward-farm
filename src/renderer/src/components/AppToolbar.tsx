@@ -1,4 +1,6 @@
+import { toast } from 'sonner'
 import {
+  FileText,
   ChevronDown,
   Chrome,
   CircleSlash,
@@ -195,6 +197,25 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={p.onReload} className="gap-2">
             <RefreshCw className="size-3.5" /> Nạp lại bảng
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="gap-2"
+            title="Xuất log tài khoản (số liệu, tiến độ, proxy, lịch sử, hồ sơ, log thô) ra file .log"
+            onClick={() => {
+              void (async () => {
+                const text = await window.api.exportAccountsLog()
+                const r = await window.api.exportSave({
+                  name: `reward-farm-log-${new Date().toISOString().slice(0, 10)}.log`,
+                  content: text,
+                  ext: 'txt'
+                })
+                if (r.ok) toast.success(`Đã lưu log tài khoản: ${r.path}`)
+                else if (!r.canceled) toast.error(r.error ?? 'không lưu được file')
+              })()
+            }}
+          >
+            <FileText className="size-3.5" /> Xuất log tài khoản (.log)
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem

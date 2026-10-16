@@ -44,8 +44,38 @@ export type ProxyTestResult = {
   error?: string
 }
 
-export type ProxyTestProgress = {
-  done: number
+/** 1 lần test proxy được lưu vào lịch sử */
+export type ProxyAttempt = {
+  at: string
+  ok: boolean
+  status: string
+  latency: number | null
+  ip: string | null
+  country: string | null
+  error?: string
+}
+
+/** Thống kê test của 1 proxy: số lần sống/chết, tỉ lệ, chuỗi thất bại */
+export type ProxyStat = {
+  id: string
+  url: string
+  label: string
+  ok: number
+  fail: number
+  total: number
+  successRate: number | null
+  failStreak: number
+  /** 10 lần gần nhất đều chết → nên xoá */
+  dead10: boolean
+  lastAt: string | null
+  lastOk: boolean | null
+  lastError: string | null
+  lastLatency: number | null
+  firstAt: string | null
+  attempts: ProxyAttempt[]
+}
+
+export type ProxyTestProgress = {  done: number
   total: number
   ok: number
   error: number

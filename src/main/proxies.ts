@@ -1,3 +1,4 @@
+import { recordProxyTest } from './proxy-history'
 // Kho proxy dung chung: %APPDATA%\bing-reward-farm\proxies.json
 // Tai khoan chi can chon proxy theo id (profile.proxyId) -> khong phai go tay chuoi proxy.
 import fs from 'node:fs'
@@ -59,13 +60,13 @@ export function startHealthLoop(opts: { everyMs?: number; concurrency?: number }
   const conc = Math.max(1, opts.concurrency ?? 4)
   let cursor = 0
   const tick = async (): Promise<void> => {
-    const all = listProxies().map((p) => p.url)
+    const all = listProxies()
     if (all.length === 0) return
     // Chi do toi da 12 proxy moi chu ky va bo qua proxy dang cooldown -> khong bao gio do 251 proxy cung luc
-    const batch: string[] = []
+    const batch: ProxyItem[] = []
     for (let k = 0; k < all.length && batch.length < 12; k += 1) {
-      const url = all[(cursor + k) % all.length]
-      if ((cooldownUntil[url] ?? 0) <= Date.now()) batch.push(url)
+      const it = all[(cursor + k) % all.length]
+      if ((cooldownUntil[it.url] ?? 0) <= Date.now()) batch.push(it)
     }
     cursor = (cursor + Math.max(1, batch.length)) % all.length
     if (batch.length === 0) {
@@ -77,12 +78,30 @@ export function startHealthLoop(opts: { everyMs?: number; concurrency?: number }
       while (i < batch.length) {
         const idx = i
         i += 1
+        const item = batch[idx]
         // eslint-disable-next-line no-await-in-loop
-        await checkProxyHealth(batch[idx]).catch(() => {})
+        const h = await checkProxyHealth(item.url).catch(() => null)
+        // Ghi lich su CHI khi vua do that (tranh ghi lai ket qua lay tu cache)
+        if (h && Date.now() - new Date(h.checkedAt).getTime() < 5000) {
+          recordProxyTest(
+            item.id,
+            item.url,
+            item.label,
+            {
+              ok: h.status === 'live',
+              latency: h.latency,
+              ip: h.ip,
+              country: h.country,
+              error: h.error,
+              at: h.checkedAt
+            },
+            h.status
+          )
+        }
       }
     }
     await Promise.all(Array.from({ length: Math.min(conc, batch.length) }, () => worker())).catch(() => {})
-    const live = batch.filter((u) => healthCache[u]?.status === 'live').length
+    const live = batch.filter((b) => healthCache[b.url]?.status === 'live').length
     console.log(`[health] da do ${batch.length}/${all.length} proxy (song: ${live}, chu ky ${everyMs}ms)`)
   }
   healthTimer = setInterval(() => void tick(), everyMs)
@@ -347,7 +366,10 @@ export async function testAndSave(id: string): Promise<ProxyTestResult> {
   const item = getProxy(id)
   if (!item) return { ok: false, error: 'khong thay proxy' }
   const res = await testProxyWithHealth(item.url)
-  updateProxy(id, { lastTest: { ...res, at: new Date().toISOString() } })
+  const at = new Date().toISOString()
+  updateProxy(id, { lastTest: { ...res, at } })
+  // Lich su: ghi lai moi lan test de biet proxy nao chet lien tuc
+  recordProxyTest(id, item.url, item.label, { ...res, at })
   console.log('[health] test thu cong:', item.url, '->', res.ok ? 'OK' : `FAIL (${res.error ?? ''})`)
   healthNotifier?.()
   return res
@@ -428,6 +450,8 @@ export async function testAll(
           /* bo qua loi ghi tam */
         }
       }
+      // Lich su: ghi ngay tung ket qua de thong ke thanh cong/that bai
+      recordProxyTest(item.id, item.url, item.label, { ...testWithAt })
     }
   }
 

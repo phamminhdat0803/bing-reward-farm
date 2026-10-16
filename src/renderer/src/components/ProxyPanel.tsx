@@ -5,6 +5,8 @@ import {
   Check,
   ChevronDown,
   ClipboardPaste,
+  Download,
+  FileText,
   Filter,
   Pencil,
   Plus,
@@ -39,10 +41,18 @@ import { ProxyDialog } from '@renderer/components/ProxyDialog'
 import { BulkProxyDialog } from '@renderer/components/BulkProxyDialog'
 import { AssignProxyDialog } from '@renderer/components/AssignProxyDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
 import { timeAgo } from '@renderer/lib/utils'
-import type { ProxyItem, RowState } from '@shared/types'
+import type { ProxyItem, ProxyStat, RowState } from '@shared/types'
 
-type StatusFilter = 'all' | 'ok' | 'error' | 'untested'
+type StatusFilter = 'all' | 'ok' | 'error' | 'untested' | 'dead10'
 type ProtocolFilter = 'all' | 'socks5' | 'socks4' | 'http'
 type UsageFilter = 'all' | 'used' | 'unused'
 type SortBy = 'default' | 'latency-asc' | 'latency-desc' | 'label' | 'tested'
@@ -59,7 +69,8 @@ const statusLabels: Record<StatusFilter, string> = {
   all: 'Tất cả',
   ok: 'Hoạt động',
   error: 'Lỗi',
-  untested: 'Chưa test'
+  untested: 'Chưa test',
+  dead10: 'Chết 10 lần liên tiếp'
 }
 
 const protocolLabels: Record<ProtocolFilter, string> = {
@@ -114,11 +125,21 @@ export function ProxyPanel({
   const [protocolFilter, setProtocolFilter] = useState<ProtocolFilter>('all')
   const [usageFilter, setUsageFilter] = useState<UsageFilter>('all')
   const [sortBy, setSortBy] = useState<SortBy>('default')
+  /** Lịch sử test từng proxy: số lần sống/chết, tỉ lệ, chuỗi thất bại (proxy-history.json) */
+  const [stats, setStats] = useState<Record<string, ProxyStat>>({})
+  /** Proxy đang mở hộp lịch sử test */
+  const [historyOf, setHistoryOf] = useState<ProxyItem | null>(null)
 
   const reload = async (): Promise<void> => {
     const list = await window.api.listProxies()
     setItems(list)
     setSelectedIds((prev) => prev.filter((id) => list.some((x) => x.id === id)))
+    try {
+      const st = await window.api.proxyStats()
+      setStats(Object.fromEntries(st.map((s) => [s.id, s])))
+    } catch {
+      /* bo qua */
+    }
   }
 
   useEffect(() => {
@@ -180,11 +201,13 @@ export function ProxyPanel({
     let http = 0
     let used = 0
     let unused = 0
+    let dead10 = 0
 
     for (const p of items) {
       if (!p.lastTest) untested++
       else if (p.lastTest.ok) ok++
       else error++
+      if (stats[p.id]?.dead10) dead10++
 
       const proto = getProxyProtocol(p.url)
       if (proto === 'socks5') socks5++
@@ -195,8 +218,11 @@ export function ProxyPanel({
       else unused++
     }
 
-    return { ok, error, untested, socks5, socks4, http, used, unused }
-  }, [items, rows])
+    return { ok, error, untested, socks5, socks4, http, used, unused, dead10 }
+  }, [items, rows, stats])
+
+  /** Proxy 10 lần test gần nhất đều chết (để xoá hàng loạt) */
+  const deadList = useMemo(() => items.filter((p) => stats[p.id]?.dead10), [items, stats])
 
   // Lọc danh sách proxy
   const filteredItems = useMemo(() => {
@@ -222,6 +248,9 @@ export function ProxyPanel({
         if (!p.lastTest || p.lastTest.ok) return false
       } else if (statusFilter === 'untested') {
         if (p.lastTest != null) return false
+      } else if (statusFilter === 'dead10') {
+        // 10 lan test gan nhat deu chet -> nen xoa
+        if (!stats[p.id]?.dead10) return false
       }
 
       if (protocolFilter !== 'all') {
@@ -415,6 +444,143 @@ export function ProxyPanel({
           <RefreshCw className="size-3.5" /> Nạp lại
         </Button>
 
+        <span className="mx-1 h-5 w-px bg-[var(--hairline)]" />
+        {/* Lịch sử test: xoá proxy chết liên tục + export */}
+        <Button
+          size="sm"
+          variant="tertiary"
+          className="gap-1.5 text-[var(--error)]"
+          disabled={!deadList.length || !!testProgress}
+          title="Xoá các proxy mà 10 lần test gần nhất đều chết"
+          onClick={() =>
+            setConfirm({
+              title: `Xoá ${deadList.length} proxy chết 10 lần liên tiếp?`,
+              description:
+                `Các proxy này đã test 10 lần gần nhất đều KHÔNG kết nối được:\n` +
+                deadList
+                  .slice(0, 8)
+                  .map((p) => `• ${p.label}`)
+                  .join('\n') +
+                (deadList.length > 8 ? `\n… và ${deadList.length - 8} proxy khác` : '') +
+                `\n\nProxy đang gắn vào tài khoản sẽ bị bỏ gắn trước khi xoá.`,
+              confirmLabel: `Xoá ${deadList.length} proxy`,
+              danger: true,
+              onConfirm: async () => {
+                const ids = deadList.map((p) => p.id)
+                await window.api.removeProxies(ids)
+                await window.api.proxyHistoryClear(ids)
+                toast.success(`Đã xoá ${ids.length} proxy chết và lịch sử test của chúng.`)
+                await reload()
+                onChanged()
+              }
+            })
+          }
+        >
+          <Trash2 className="size-3.5" /> Xoá chết ≥10 ({deadList.length})
+        </Button>
+        <Button
+          size="sm"
+          variant="tertiary"
+          className="gap-1.5"
+          disabled={!items.length}
+          title="Xuất toàn bộ kho proxy kèm thống kê test ra CSV"
+          onClick={() =>
+            void act('exportCsv', async () => {
+              const head =
+                'ten,url,giao_thuc,lan_test,thanh_cong,that_bai,ti_le_thanh_cong,that_bai_lien_tiep,lan_test_cuoi,ket_qua_cuoi,ip,quoc_gia,ping_ms,loi_cuoi,tai_khoan_dang_dung'
+              const lines = items.map((p) => {
+                const s = stats[p.id]
+                const users = usersOf(p.id)
+                  .map((u) => u.profile.name)
+                  .join('; ')
+                return [
+                  `"${p.label.replace(/"/g, "'")}"`,
+                  p.url,
+                  getProxyProtocol(p.url),
+                  s?.total ?? 0,
+                  s?.ok ?? 0,
+                  s?.fail ?? 0,
+                  s?.successRate ?? '',
+                  s?.failStreak ?? 0,
+                  s?.lastAt ?? '',
+                  p.lastTest ? (p.lastTest.ok ? 'OK' : 'LỖI') : 'chưa test',
+                  p.lastTest?.ip ?? '',
+                  p.lastTest?.country ?? '',
+                  p.lastTest?.latency ?? '',
+                  `"${(p.lastTest?.error ?? '').replace(/"/g, "'")}"`,
+                  `"${users}"`
+                ].join(',')
+              })
+              const csv = [head, ...lines].join('\n')
+              const r = await window.api.exportSave({
+                name: `proxy-${new Date().toISOString().slice(0, 10)}.csv`,
+                content: csv,
+                ext: 'csv'
+              })
+              if (r.ok) toast.success(`Đã lưu ${items.length} proxy: ${r.path}`)
+              else if (!r.canceled) toast.error(r.error ?? 'không lưu được file')
+            })
+          }
+        >
+          <Download className="size-3.5" /> Xuất CSV
+        </Button>
+        <Button
+          size="sm"
+          variant="tertiary"
+          className="gap-1.5"
+          disabled={!items.length}
+          title="Xuất JSON (kèm lịch sử test từng proxy) để backup hoặc gửi agent"
+          onClick={() =>
+            void act('exportJson', async () => {
+              const json = JSON.stringify(
+                {
+                  exportedAt: new Date().toISOString(),
+                  total: items.length,
+                  proxies: items.map((p) => ({
+                    label: p.label,
+                    url: p.url,
+                    note: p.note ?? null,
+                    lastTest: p.lastTest ?? null,
+                    usedBy: usersOf(p.id).map((u) => u.profile.name),
+                    stats: stats[p.id] ?? null
+                  }))
+                },
+                null,
+                2
+              )
+              const r = await window.api.exportSave({
+                name: `proxy-${new Date().toISOString().slice(0, 10)}.json`,
+                content: json,
+                ext: 'json'
+              })
+              if (r.ok) toast.success(`Đã lưu JSON: ${r.path}`)
+              else if (!r.canceled) toast.error(r.error ?? 'không lưu được file')
+            })
+          }
+        >
+          <Download className="size-3.5" /> Xuất JSON
+        </Button>
+        <Button
+          size="sm"
+          variant="tertiary"
+          className="gap-1.5"
+          title="Xuất log tài khoản (số liệu, tiến độ, proxy, lịch sử, hồ sơ, log thô) ra file .log"
+          onClick={() =>
+            void act('exportLog', async () => {
+              const text = await window.api.exportAccountsLog()
+              const r = await window.api.exportSave({
+                name: `reward-farm-log-${new Date().toISOString().slice(0, 10)}.log`,
+                content: text,
+                ext: 'txt'
+              })
+              if (r.ok) toast.success(`Đã lưu log tài khoản: ${r.path}`)
+              else if (!r.canceled) toast.error(r.error ?? 'không lưu được file')
+            })
+          }
+        >
+          <FileText className="size-3.5" /> Xuất log tài khoản
+        </Button>
+
         {/* Các nút thao tác khi có proxy được chọn */}
         {selectedIds.length > 0 ? (
           <>
@@ -517,6 +683,10 @@ export function ProxyPanel({
             <DropdownMenuItem onClick={() => setStatusFilter('untested')}>
               Chưa kiểm tra ({counts.untested})
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter('dead10')} className="gap-1.5 text-[var(--error)]">
+              <Trash2 className="size-3" />
+              Chết 10 lần liên tiếp ({counts.dead10})
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -579,13 +749,14 @@ export function ProxyPanel({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
         {/* Table tu tao vung cuon (overflow-auto) — khong boc them div overflow nua,
             neu khong thead sticky se khong dinh */}
-        <Table className="min-w-[1140px] table-fixed">
+        <Table className="min-w-[1320px] table-fixed">
             <colgroup>
               <col style={{ width: 44 }} />
-              <col style={{ width: 190 }} />
-              <col style={{ width: 280 }} />
-              <col style={{ width: 300 }} />
-              <col style={{ width: 200 }} />
+              <col style={{ width: 180 }} />
+              <col style={{ width: 250 }} />
+              <col style={{ width: 290 }} />
+              <col style={{ width: 170 }} />
+              <col style={{ width: 230 }} />
               <col style={{ width: 130 }} />
             </colgroup>
             <TableHeader>
@@ -606,6 +777,7 @@ export function ProxyPanel({
                 <TableHead>Tên</TableHead>
                 <TableHead>Chuỗi proxy</TableHead>
                 <TableHead>Kết quả test gần nhất</TableHead>
+                <TableHead className="text-center">Lịch sử test</TableHead>
                 <TableHead>Tài khoản đang dùng</TableHead>
                 <TableHead className="text-right">Thao tác</TableHead>
               </TableRow>
@@ -613,13 +785,13 @@ export function ProxyPanel({
             <TableBody>
               {items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-[var(--steel)]">
+                  <TableCell colSpan={7} className="py-12 text-center text-[var(--steel)]">
                     Chưa có proxy nào — bấm “Thêm proxy” hoặc “Dán hàng loạt” rồi gán cho tài khoản ở tab Tài khoản.
                   </TableCell>
                 </TableRow>
               ) : filteredItems.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-[var(--steel)]">
+                  <TableCell colSpan={7} className="py-12 text-center text-[var(--steel)]">
                     <div className="flex flex-col items-center gap-2">
                       <span>Không có proxy nào khớp với bộ lọc hiện tại.</span>
                       <Button size="sm" variant="tertiary" onClick={resetFilters}>
@@ -679,6 +851,46 @@ export function ProxyPanel({
                             </span>
                           </div>
                         )}
+                      </TableCell>
+                      {/* Lịch sử test: số lần sống/chết + tỉ lệ + chuỗi thất bại */}
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        {(() => {
+                          const s = stats[p.id]
+                          if (!s || s.total === 0) {
+                            return <span className="text-[12px] text-[var(--stone)]">chưa có lịch sử</span>
+                          }
+                          return (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="mm-tabular text-[12.5px]">
+                                <span className="font-medium text-[var(--success-text)]">{s.ok}</span>
+                                <span className="text-[var(--stone)]"> / {s.total} lần sống</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {s.successRate != null ? (
+                                  <Badge variant={s.successRate >= 50 ? 'success' : s.successRate > 0 ? 'warning' : 'destructive'}>
+                                    {s.successRate}%
+                                  </Badge>
+                                ) : null}
+                                {s.dead10 ? (
+                                  <Badge variant="destructive" title="10 lần test gần nhất đều chết — nên xoá">
+                                    chết 10 lần liên tiếp
+                                  </Badge>
+                                ) : s.failStreak >= 3 ? (
+                                  <Badge variant="warning" title={`${s.failStreak} lần lỗi liên tiếp`}>
+                                    lỗi ×{s.failStreak}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                className="text-[11.5px] text-[var(--brand-blue-deep)] hover:underline"
+                                onClick={() => setHistoryOf(p)}
+                              >
+                                xem {s.attempts.length} lần test
+                              </button>
+                            </div>
+                          )
+                        })()}
                       </TableCell>
                       <TableCell>
                         {users.length === 0 ? (
@@ -853,6 +1065,77 @@ export function ProxyPanel({
       />
 
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
+
+      {/* Lịch sử test của 1 proxy: từng lần sống/chết, ping, IP, lỗi */}
+      <Dialog open={!!historyOf} onOpenChange={(o) => !o && setHistoryOf(null)}>
+        <DialogContent className="max-w-2xl gap-0 p-0">
+          <DialogHeader className="border-b border-[var(--hairline-soft)] px-4 py-3">
+            <DialogTitle className="text-[15px]">Lịch sử test — {historyOf?.label}</DialogTitle>
+            <DialogDescription className="text-[12.5px]">
+              {(() => {
+                const s = historyOf ? stats[historyOf.id] : null
+                if (!s || s.total === 0) return 'Proxy này chưa có lần test nào được ghi.'
+                return `Sống ${s.ok}/${s.total} lần (${s.successRate}%) · lỗi liên tiếp gần nhất: ${s.failStreak} lần${
+                  s.dead10 ? ' · ⚠ 10 lần gần nhất đều chết, nên xoá' : ''
+                }`
+              })()}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[420px] overflow-auto px-4 py-3">
+            {(() => {
+              const s = historyOf ? stats[historyOf.id] : null
+              const attempts = s?.attempts ?? []
+              if (!attempts.length) {
+                return <div className="py-8 text-center text-[12.5px] text-[var(--steel)]">Chưa có dữ liệu.</div>
+              }
+              return (
+                <div className="flex flex-col gap-1">
+                  {[...attempts].reverse().map((a, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-wrap items-center gap-2 rounded-[8px] border border-[var(--hairline)] bg-[var(--surface)]/40 px-2 py-1 text-[12px]"
+                    >
+                      <span className="mm-tabular shrink-0 text-[11.5px] text-[var(--stone)]">
+                        {new Date(a.at).toLocaleString('vi-VN')}
+                      </span>
+                      <Badge variant={a.ok ? 'success' : 'destructive'}>{a.ok ? 'SỐNG' : 'CHẾT'}</Badge>
+                      {a.latency != null ? <span className="mm-tabular mm-micro">{a.latency}ms</span> : null}
+                      {a.ip ? <span className="mm-tabular mm-micro">{a.ip}</span> : null}
+                      {a.country ? <span className="mm-micro">{a.country}</span> : null}
+                      {a.error ? (
+                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--error)]" title={a.error}>
+                          {a.error}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+          <DialogFooter className="flex-row items-center justify-between gap-2 border-t border-[var(--hairline-soft)] px-4 py-2.5">
+            <Button
+              variant="tertiary"
+              size="sm"
+              className="gap-1.5 text-[var(--error)]"
+              onClick={() =>
+                void act('clearHistory', async () => {
+                  if (!historyOf) return
+                  const r = await window.api.proxyHistoryClear([historyOf.id])
+                  toast.success(`Đã xoá lịch sử test của proxy (${r.cleared} bản ghi).`)
+                  setHistoryOf(null)
+                  await reload()
+                })
+              }
+            >
+              <Trash2 className="size-3.5" /> Xoá lịch sử proxy này
+            </Button>
+            <Button variant="tertiary" size="sm" onClick={() => setHistoryOf(null)}>
+              Đóng
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
