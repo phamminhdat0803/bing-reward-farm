@@ -2,7 +2,7 @@
 // la duoc cong diem (do duoc 2026-10-13: 2 the +15d va 2 the +5d => +46 diem trong ~1 phut).
 // The referral (/refer, referandearn) KHONG cong diem -> bo qua. Punchcard /quest/ de rieng.
 import type { BrowserContext, Page } from 'playwright-core'
-import { closeStrayPages, workPage } from './browser'
+import { closeStrayPages, humanScroll, workPage } from './browser'
 import { EARN_URL, readCounters } from './rewards'
 import { cancellableSleep, randInt } from './logger'
 import type { CoreConfig, EarnResult, Logger } from './types'
@@ -156,16 +156,17 @@ export async function runEarnPass(args: {
     if (ownPage) await page.close()
     return { status: 'stopped', items: [], blocked: [], blockedPoints: 0, sectionBefore: null, sectionAfter: null, pointsBefore: snap.points, pointsAfter: snap.points, todayBefore: snap.todayPoints, todayAfter: snap.todayPoints }
   }
-  // cuon het trang cho lazy-render roi ve dau
-  await page
-    .evaluate(async () => {
-      for (let i = 0; i < 8; i += 1) {
-        window.scrollBy(0, 700)
-        await new Promise((r) => setTimeout(r, 300))
-      }
-      window.scrollTo(0, 0)
-    })
-    .catch(() => {})
+  // Cuon het trang cho lazy-render bang NHIEU NHIP wheel nho (khong nhay scrollBy/scrollTo), roi lan nguoc ve dau
+  await humanScroll(page, { minPx: 2500, maxPx: 4200, shouldStop })
+  await cancellableSleep(600, shouldStop)
+  await humanScroll(page, { minPx: 2500, maxPx: 4200, shouldStop })
+  await cancellableSleep(500, shouldStop)
+  // Ve dau trang: nhieu nhip wheel nguoc (thay vi window.scrollTo(0,0) nhay tut)
+  for (let i = 0; i < 4; i += 1) {
+    if (shouldStop?.()) break
+    await page.mouse.wheel(0, -900).catch(() => {})
+    await cancellableSleep(randInt(60, 160), shouldStop)
+  }
   await cancellableSleep(1500, shouldStop)
   if (shouldStop?.()) {
     if (ownPage) await page.close()

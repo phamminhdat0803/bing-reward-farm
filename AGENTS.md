@@ -196,6 +196,19 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
+## Cuộn lăn nhiều nhịp + nối mạch truy vấn (2026-10-17)
+
+- `core/browser.ts` → `humanScroll(page, { minPx, maxPx, shouldStop, onTick })`: `mouse.move()` vào vùng nội dung
+  (wheel chỉ ăn khi con trỏ nằm trên vùng cuộn được) rồi lăn **3–8 nhịp 60–220 px**, nghỉ 40–160 ms; 10% nhịp dùng
+  `PageDown`; 15% lăn lố 80–250 px rồi kéo lại. Thay cho `mouse.wheel(0, 250–1100)` một phát (search) và
+  `window.scrollBy(0,700)` ×8 + `window.scrollTo(0,0)` (earn — nhảy tức thời, không có wheel event).
+- `core/search.ts` → `pickRelatedQueries(pairs, { current, used, max })` (hàm thuần): sau mỗi search, **40%** lấy 1 gợi ý
+  “Related searches” (`#b_results|#b_context|.b_ans a[href*="/search?q="]`) làm **truy vấn lượt kế tiếp** ⇒ có mạch chủ đề
+  thay vì bốc ngẫu nhiên; lọc rác (rỗng, 1 từ, toàn số, URL, trùng query hiện tại/đã dùng trong pass) và chống trùng.
+
+Kiểm chứng (`BRF_SCROLL_TEST=1 BRF_RELATED_TEST=1`): scroll → `747 yêu cầu = 7 nhịp, delta lớn nhất 144 px, scrollY=747` **PASS**;
+related → lọc 7 mục (có rác + trùng) còn `["dự báo thời tiết 10 ngày","giá vàng hôm nay"]` **PASS**.
+
 ## “Chạy ẩn” không có tác dụng với pass chạy (kể cả MOBILE) — đã sửa 2026-10-17
 
 Triệu chứng người dùng báo: bật **Chạy ẩn (headless)** trong Cài đặt mà kịch bản **mobile vẫn mở cửa sổ trình duyệt**.

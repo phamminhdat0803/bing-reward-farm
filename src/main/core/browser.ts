@@ -250,6 +250,57 @@ export async function closeStrayPages(ctx: BrowserContext, keepPage?: Page): Pro
   }
 }
 
+/**
+ * Cuon nhu nguoi that: dua chuot vao vung noi dung roi lan NHIEU NHIP nho (60-220 px/nhip, nghi 40-160 ms),
+ * thinh thoang lan lo roi keo lai, thinh thoang dung PageDown. Tra ve tong so px da cuon.
+ * 2026-10-17: truoc day chi co 1 cu wheel(0, 250-1100) = lan mot phat het nua trang (khong giong nguoi),
+ * va cho con tro khong nam tren vung cuon duoc thi wheel bi nuot (khong cuon gi).
+ */
+export async function humanScroll(
+  page: Page,
+  opts: { minPx?: number; maxPx?: number; shouldStop?: () => boolean; onTick?: (kind: 'wheel' | 'page') => void } = {}
+): Promise<number> {
+  const minPx = opts.minPx ?? 300
+  const maxPx = opts.maxPx ?? 1400
+  const total = randInt(Math.min(minPx, maxPx), Math.max(minPx, maxPx))
+  const vp = page.viewportSize() ?? { width: 1366, height: 820 }
+  // Wheel chi an khi con tro nam trong vung noi dung
+  await page.mouse
+    .move(
+      randInt(Math.round(vp.width * 0.25), Math.round(vp.width * 0.75)),
+      randInt(Math.round(vp.height * 0.3), Math.round(vp.height * 0.7))
+    )
+    .catch(() => {})
+
+  const ticks = randInt(3, 8)
+  let moved = 0
+  for (let i = 0; i < ticks; i += 1) {
+    if (opts.shouldStop?.()) break
+    const remaining = Math.max(0, total - moved)
+    if (remaining === 0) break
+    const step = Math.min(220, Math.max(60, Math.round((remaining / (ticks - i)) * (0.7 + Math.random() * 0.6))))
+    if (Math.random() < 0.1) {
+      await page.keyboard.press('PageDown').catch(() => {})
+      moved += Math.round(vp.height * 0.8)
+      opts.onTick?.('page')
+    } else {
+      await page.mouse.wheel(0, step).catch(() => {})
+      moved += step
+      opts.onTick?.('wheel')
+    }
+    await sleep(randInt(40, 160))
+  }
+
+  // Thinh thoang lan lo roi keo lai (giong nguoi doc)
+  if (!opts.shouldStop?.() && Math.random() < 0.15) {
+    await page.mouse.wheel(0, randInt(80, 250)).catch(() => {})
+    await sleep(randInt(120, 320))
+    await page.mouse.wheel(0, -randInt(60, 200)).catch(() => {})
+    await sleep(randInt(80, 200))
+  }
+  return moved
+}
+
 export async function humanPause(
   cfg: CoreConfig,
   which: 'delay' | 'dwell' = 'delay',

@@ -1,4 +1,5 @@
-import { launchPersistent } from './core/browser'
+import { pickRelatedQueries } from './core/search'
+import { humanScroll, launchPersistent } from './core/browser'
 import { looksLikeRestriction } from './core/search'
 import { startProxyFill, proxyFillState, startAccountProxyFill, accountProxyFillState, cancelAccountProxyFill } from './proxy-auto-fill'
 import { getKeywordAiConfig, saveKeywordAiConfig, testKeywordAi, getKeywordAiJob, startKeywordAi, stopKeywordAi } from './keyword-ai'
@@ -507,6 +508,87 @@ if (process.env.BRF_TEST_ALL) {
           }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_SCROLL_TEST=1 -> do so nhip wheel that khi cuon (chung minh khong con 1 cu nhay)
+  if (process.env.BRF_SCROLL_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const prof = loadStore().profiles[0]
+          const s = await launchPersistent(prof.profileDir, coreConfig(prof, { headless: true }), { mobile: false })
+          try {
+            const page = await s.context.newPage()
+            // Trang cao 6000px, khong can mang
+            await page.goto('data:text/html,<body style="height:6000px;background:%23eee">scroll test</body>', {
+              waitUntil: 'domcontentloaded'
+            })
+            await page.evaluate(() => {
+              const w = window as unknown as { __wheel: { count: number; maxAbs: number; total: number } }
+              w.__wheel = { count: 0, maxAbs: 0, total: 0 }
+              window.addEventListener(
+                'wheel',
+                (e) => {
+                  w.__wheel.count += 1
+                  w.__wheel.total += Math.abs(e.deltaY)
+                  w.__wheel.maxAbs = Math.max(w.__wheel.maxAbs, Math.abs(e.deltaY))
+                },
+                { passive: true }
+              )
+            })
+            let actions = 0
+            const moved = await humanScroll(page, {
+              minPx: 600,
+              maxPx: 1000,
+              onTick: () => {
+                actions += 1
+              }
+            })
+            const st = await page.evaluate(() => {
+              const w = window as unknown as { __wheel: { count: number; maxAbs: number; total: number } }
+              return { ...w.__wheel, scrollY: Math.round(window.scrollY) }
+            })
+            console.log(
+              `[scroll-test] yeu cau ~${moved}px -> ${actions} nhip (wheel=${st.count} · PageDown=${actions - st.count}) · tong delta wheel=${Math.round(st.total)}px · delta LON NHAT=${Math.round(st.maxAbs)}px · scrollY=${st.scrollY}`
+            )
+            console.log(
+              `[scroll-test] ${
+                actions >= 3 && st.maxAbs <= 260 && st.scrollY > 200
+                  ? 'PASS (nhieu nhip nho, khong con cu nhay >260px, co cuon that)'
+                  : 'FAIL'
+              }`
+            )
+            await page.close()
+          } finally {
+            await s.close().catch(() => {})
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 5000))
+    })
+  }
+
+  // Tien ich dev: BRF_RELATED_TEST=1 -> test bo loc goi y "Related searches" (ham thuan)
+  if (process.env.BRF_RELATED_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      const cur = 'thời tiết hà nội'
+      const pairs = [
+        { text: 'thời tiết hà nội', href: 'https://www.bing.com/search?q=th%E1%BB%9Di+ti%E1%BA%BFt+h%C3%A0+n%E1%BB%99i' },
+        { text: 'dự báo thời tiết 10 ngày tới', href: 'https://www.bing.com/search?q=d%E1%BB%B1+b%C3%A1o+th%E1%BB%9Di+ti%E1%BA%BFt+10+ng%C3%A0y' },
+        { text: 'giá vàng hôm nay', href: 'https://www.bing.com/search?q=gi%C3%A1+v%C3%A0ng+h%C3%B4m+nay' },
+        { text: '', href: 'https://www.bing.com/search?q=' },
+        { text: '3', href: 'https://www.bing.com/search?q=3' },
+        { text: 'https://x.com', href: 'https://www.bing.com/search?q=https%3A%2F%2Fx.com' },
+        { text: 'dự báo thời tiết 10 ngày tới', href: 'https://www.bing.com/search?q=d%E1%BB%B1+b%C3%A1o+th%E1%BB%9Di+ti%E1%BA%BFt+10+ng%C3%A0y' }
+      ]
+      const got = pickRelatedQueries(pairs, { current: cur, used: new Set<string>(), max: 5 })
+      console.log(`[related-test] loc tu ${pairs.length} muc -> ${JSON.stringify(got)}`)
+      const ok =
+        got.length === 2 &&
+        !got.some((g) => g.toLowerCase() === cur) &&
+        !got.some((g) => g.includes('http')) &&
+        new Set(got.map((g) => g.toLowerCase())).size === got.length
+      console.log(`[related-test] ${ok ? 'PASS (bo rac + trung lap, giu 2 goi y sach)' : 'FAIL'}`)
     })
   }
 

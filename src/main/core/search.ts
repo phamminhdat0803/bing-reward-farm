@@ -1,7 +1,7 @@
 // 1 pass search: go tu khoa nhu nguoi that, nghi 15-30s, doc lai diem dinh ky.
 // VN: khong co counter kieu US; diem = 3/search, tran ngay doc tu drawer breakdown.
 import type { BrowserContext, Page } from 'playwright-core'
-import { humanPause, humanType, workPage } from './browser'
+import { humanPause, humanScroll, humanType, workPage } from './browser'
 import { fmtCounter, readCounters } from './rewards'
 import { cancellableSleep, randInt, sleep } from './logger'
 import type { CoreConfig, Logger, SearchPassResult, SearchProgress } from './types'
@@ -74,6 +74,39 @@ export async function detectRestriction(page: Page): Promise<boolean> {
   return looksLikeRestriction({ url, text: probe.text, hasMarkup: probe.marked })
 }
 
+/** Ham THUAN (test duoc): loc goi y "Related searches" tho thanh truy van sach de dung cho luot ke tiep. */
+export function pickRelatedQueries(
+  pairs: { text: string; href: string }[],
+  opts: { current?: string; used?: Set<string>; max?: number } = {}
+): string[] {
+  const out: string[] = []
+  const cur = (opts.current ?? '').toLowerCase().trim()
+  for (const p of pairs) {
+    let q = ''
+    try {
+      q = new URL(p.href).searchParams.get('q') ?? ''
+    } catch {
+      q = ''
+    }
+    q = decodeURIComponent(q || p.text || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!q || q.length < 8 || q.length > 80) continue
+    const words = q.split(' ').length
+    if (words < 2 || words > 10) continue
+    if (/^[\d\s.,%$-]+$/.test(q)) continue
+    if (/^https?:|^www\./i.test(q)) continue
+    if (/[<>{}]/.test(q)) continue
+    const low = q.toLowerCase()
+    if (low === cur) continue
+    if (opts.used?.has(low)) continue
+    if (out.some((x) => x.toLowerCase() === low)) continue
+    out.push(q)
+    if (out.length >= (opts.max ?? 5)) break
+  }
+  return out
+}
+
 async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () => boolean): Promise<string> {
   if (shouldStop?.()) return 'stopped'
   if (!/^https?:\/\/(www\.)?bing\.com\//.test(page.url()) || page.url().includes('rewards.bing.com')) {
@@ -109,7 +142,8 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () 
   if (shouldStop?.()) return 'stopped'
   await cancellableSleep(randInt(900, 2200), shouldStop)
   if (shouldStop?.()) return 'stopped'
-  await page.mouse.wheel(0, randInt(250, 1100)).catch(() => {})
+  // Cuon nhu nguoi: nhieu nhip nho thay vi 1 cu lan het nua trang
+  await humanScroll(page, { minPx: 250, maxPx: 1200, shouldStop })
   await humanPause(cfg, 'dwell', shouldStop)
   if (shouldStop?.()) return 'stopped'
   if (await detectRestriction(page)) return 'restricted'
@@ -147,11 +181,11 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () 
           // Doc ket qua nhu nguoi that: o lai lau hon, cuon nhe truoc khi quay ve
           await cancellableSleep(randInt(6000, 22000), shouldStop)
           if (opened) {
-            await opened.mouse?.wheel(0, randInt(200, 900)).catch(() => {})
+            await humanScroll(opened, { minPx: 200, maxPx: 900, shouldStop })
             await cancellableSleep(randInt(800, 2500), shouldStop)
             await opened.close().catch(() => {})
           } else {
-            await page.mouse.wheel(0, randInt(200, 900)).catch(() => {})
+            await humanScroll(page, { minPx: 200, maxPx: 900, shouldStop })
             await cancellableSleep(randInt(400, 1200), shouldStop)
             await page.goBack({ timeout: 10000 }).catch(() => {})
           }
@@ -271,6 +305,9 @@ export async function runSearchPass(args: {
     return n
   }
   let nextCheckAt = nextEvery()
+  /** Truy vấn lấy từ gợi ý “Related searches” của SERP trước — dùng cho lượt kế tiếp (nối mạch chủ đề) */
+  let stashedQ: string | null = null
+  const usedInPass = new Set<string>()
 
   for (let i = 0; i < planned; i += 1) {
     if (shouldStop?.()) {
@@ -278,7 +315,10 @@ export async function runSearchPass(args: {
       log.warn(`[${kind}] nguoi dung dung - ket thuc som sau ${searches} search`)
       break
     }
-    let q = nextQuery()
+    // Uu tien truy van noi tiep tu SERP truoc (neu co), khong thi lay tu kho
+    let q = stashedQ ?? nextQuery()
+    const fromSerp = !!stashedQ
+    stashedQ = null
     if (!q) {
       status = 'keywords-exhausted'
       log.warn(`[${kind}] Đã hết từ khoá chưa dùng trong kho chung. Nạp thêm tại tab Từ khoá.`)
@@ -293,7 +333,10 @@ export async function runSearchPass(args: {
       break
     }
     // Shared, synchronous claim closes the race after the async restriction check.
-    while (q && args.reserveQuery && !args.reserveQuery(q)) q = nextQuery()
+    // Truy vấn nối tiếp từ SERP không nằm trong kho nên chỉ cần chống trùng trong pass này.
+    while (q && !fromSerp && args.reserveQuery && !args.reserveQuery(q)) q = nextQuery()
+    if (q && fromSerp && usedInPass.has(q.toLowerCase())) q = nextQuery()
+    if (q) usedInPass.add(q.toLowerCase())
     if (!q) {
       status = 'keywords-exhausted'
       log.warn(`[${kind}] Đã hết từ khoá chưa dùng trong kho chung. Nạp thêm tại tab Từ khoá.`)
@@ -326,6 +369,24 @@ export async function runSearchPass(args: {
       rememberQuery(q)
       searches += 1
       log.debug(`[${kind}] ${i + 1}/${planned}: ${q} [${how}]`)
+
+      // NOI MACH TRUY VAN: ~40% thi lay 1 goi y "Related searches" ngay tren SERP nay lam truy van luot ke tiep
+      // (thay vi luon boc ngau nhien tu kho — do la diem bi coi la may moc nhat).
+      if (i < planned - 1 && !shouldStop?.() && Math.random() < 0.4) {
+        const pairs = await page
+          .evaluate(() => {
+            const as = Array.from(
+              document.querySelectorAll('#b_results a[href*="/search?q="], #b_context a[href*="/search?q="], .b_ans a[href*="/search?q="]')
+            ).slice(0, 30)
+            return as.map((a) => ({ text: (a.textContent || '').trim(), href: (a as HTMLAnchorElement).href }))
+          })
+          .catch(() => [] as { text: string; href: string }[])
+        const cands = pickRelatedQueries(pairs, { current: q, used: usedInPass, max: 5 })
+        if (cands.length) {
+          stashedQ = cands[randInt(0, cands.length - 1)]
+          log.debug(`[${kind}] nối mạch chủ đề: "${q}" -> "${stashedQ}"`)
+        }
+      }
     } catch (e) {
       const msg = String((e as Error).message)
       log.warn(`[${kind}] loi khi search "${q}": ${msg.slice(0, 160)}`)
