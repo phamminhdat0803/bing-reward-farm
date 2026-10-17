@@ -8,11 +8,12 @@ function Table({
   className,
   containerClassName,
   horizontalScroll = true,
+  viewportRef,
   ...props
-}: React.ComponentProps<'table'> & { containerClassName?: string; horizontalScroll?: boolean }): React.JSX.Element {
+}: React.ComponentProps<'table'> & { containerClassName?: string; horizontalScroll?: boolean; viewportRef?: React.Ref<HTMLDivElement> }): React.JSX.Element {
   return (
     // Dung ScrollArea (thanh cuon tu ve) thay cho cuon native
-    <ScrollArea data-slot="table-container" className={cn('relative min-h-0 w-full flex-1', containerClassName)}>
+    <ScrollArea viewportRef={viewportRef} data-slot="table-container" className={cn('relative min-h-0 w-full flex-1', containerClassName)}>
       {/* border-separate: BAT BUOC de thead sticky chay duoc tren Chrome
           (border-collapse lam position:sticky tren <thead>/<th> bi vo hieu) */}
       <table

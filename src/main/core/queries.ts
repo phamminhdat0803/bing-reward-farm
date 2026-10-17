@@ -1,6 +1,7 @@
+import { keywordKey } from '../../shared/keywords'
 // Kho query: cau co san + cau ghep tu dong, khong lap trong ngay (port tu bing-reward)
 import fs from 'node:fs'
-import { pick, randInt } from './logger'
+import { pick } from './logger'
 
 const BASE = [
   'thời tiết hà nội hôm nay', 'giá vàng sjc hôm nay', 'tỷ giá usd vnd', 'tin tức công nghệ mới nhất',
@@ -64,12 +65,10 @@ export function buildPool(extraFile?: string): string[] {
 }
 
 export function makeQueryPicker(pool: string[], used: Set<string>): () => string {
-  let remaining = pool.filter((q) => !used.has(q))
+  const keys = new Set([...used].map(q => keywordKey(q)))
+  const remaining = pool.filter(q => !keys.has(keywordKey(q)))
   return function nextQuery(): string {
-    if (remaining.length === 0) {
-      const base = pick(pool)
-      remaining = Array.from({ length: 60 }, (_, i) => `${base} ${randInt(1000, 9999)}${i ? ` ${i}` : ''}`)
-    }
+    if (remaining.length === 0) return ''
     const i = Math.floor(Math.random() * remaining.length)
     const [q] = remaining.splice(i, 1)
     return q

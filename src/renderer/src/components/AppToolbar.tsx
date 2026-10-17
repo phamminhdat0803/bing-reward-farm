@@ -1,9 +1,9 @@
+import { ProxyAutoFillButton } from './ProxyAutoFillButton'
 import { toast } from 'sonner'
 import {
   FileText,
   ChevronDown,
   Chrome,
-  CircleSlash,
   Download,
   Gift,
   LogIn,
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
-import { Badge } from '@renderer/components/ui/badge'
+import { ScrollArea, ScrollBar } from '@renderer/components/ui/scroll-area'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,12 +33,14 @@ import {
 export type ToolbarProps = {
   selectedCount: number
   runningCount: number
-  anyBrowserOpen: boolean
-  anyRunning: boolean
+  selectedBrowserCount: number
+  selectedRunningCount: number
+  hiddenSelectedCount: number
   busy: string | null
   refreshing: { done: number; total: number; parallel?: number } | null
   query: string
   onQuery: (v: string) => void
+  onClearSelection: () => void
   onAdd: () => void
   onEdit: () => void
   onRemove: () => void
@@ -58,16 +60,20 @@ function Divider(): React.JSX.Element {
 /** Thanh menu phía trên bảng kiểu GPMLogin — gọn gàng, nhóm menu xổ xuống */
 export function AppToolbar(p: ToolbarProps): React.JSX.Element {
   const none = p.selectedCount === 0
-  const many = p.selectedCount > 1
   const isRefreshing = !!p.refreshing && (p.refreshing.total === 0 || p.refreshing.done < p.refreshing.total)
+  const stopCount = none ? p.runningCount : p.selectedRunningCount
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 py-1.5">
+    <div data-slot="account-toolbar" className="shrink-0 border-b border-[var(--hairline-soft)] bg-[var(--canvas)]">
+      <div className="flex min-w-0 items-center">
+      <ScrollArea className="h-11 min-w-0 flex-1">
+      <div className="flex h-11 min-w-max items-center gap-1.5 px-3">
       {/* 1. Nút Thêm tài khoản */}
       <Button size="sm" onClick={p.onAdd} className="gap-1.5">
         <Plus className="size-3.5" /> Thêm tài khoản
       </Button>
 
+      <ProxyAutoFillButton onChanged={p.onReload} />
       <Divider />
 
       {/* 2. Cập nhật trạng thái */}
@@ -76,13 +82,13 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
         variant="tertiary"
         disabled={none || isRefreshing}
         onClick={p.onRefreshPoints}
-        className="gap-1.5"
+        className="w-[175px] gap-1.5"
         title="Mở trình duyệt để đọc điểm + trần ngày cho các tài khoản đã chọn"
       >
         <RefreshCw className={isRefreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
-        {isRefreshing
+        <span className="truncate">{isRefreshing
           ? `Đang cập nhật ${p.refreshing?.done ?? 0}/${p.refreshing?.total ?? 0}${(p.refreshing?.parallel ?? 1) > 1 ? ` · ${p.refreshing?.parallel} song song` : ''}`
-          : 'Cập nhật trạng thái'}
+          : 'Cập nhật trạng thái'}</span>
       </Button>
 
       <Divider />
@@ -96,7 +102,7 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
           onClick={() => p.onRun(['desktop', 'daily', 'earn', 'mobile'])}
           className="rounded-r-none border-r-0 gap-1.5"
         >
-          <Play className="size-3.5" /> {many ? `Chạy (${p.selectedCount})` : 'Chạy'}
+          <Play className="size-3.5" /> Chạy đã chọn
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -131,12 +137,10 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
         </DropdownMenu>
       </div>
 
-      {/* Nút Dừng chạy hiển thị cạnh nút Chạy khi có tài khoản đang chạy */}
-      {p.anyRunning ? (
-        <Button size="sm" variant="danger" onClick={p.onStop} className="gap-1.5">
-          <Square className="size-3.5 fill-current" /> Dừng chạy {p.runningCount > 0 ? `(${p.runningCount})` : ''}
+      {/* Keep the stop control in place; its label makes the target explicit. */}
+        <Button size="sm" variant="danger" disabled={!stopCount} onClick={p.onStop} className="mm-tabular w-[145px] gap-1.5">
+          <Square className="size-3.5 fill-current" /> {none ? 'Dừng tất cả' : 'Dừng đã chọn'}{stopCount > 0 ? ` (${stopCount})` : ''}
         </Button>
-      ) : null}
 
       <Divider />
 
@@ -156,7 +160,7 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
             <Button
               size="sm"
               variant="tertiary"
-              disabled={none && !p.anyBrowserOpen}
+              disabled={none}
               className="rounded-l-none px-1.5"
               title="Thao tác trình duyệt"
             >
@@ -174,11 +178,11 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              disabled={!p.anyBrowserOpen}
+              disabled={!p.selectedBrowserCount}
               onClick={p.onCloseBrowser}
               className="gap-2.5 whitespace-nowrap text-[var(--error)] focus:text-[var(--error)]"
             >
-              <X className="size-3.5" /> Đóng trình duyệt đang mở
+              <X className="size-3.5" /> Đóng trình duyệt đã chọn
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -228,24 +232,31 @@ export function AppToolbar(p: ToolbarProps): React.JSX.Element {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Phía bên phải: Badge chọn & Ô tìm kiếm */}
-      <div className="ml-auto flex items-center gap-2">
-        {p.selectedCount > 0 ? (
-          <Badge variant="outline">{many ? `${p.selectedCount} tài khoản chọn` : '1 tài khoản chọn'}</Badge>
-        ) : (
-          <span className="hidden items-center gap-1.5 text-[12.5px] text-[var(--stone)] md:flex">
-            <CircleSlash className="size-3.5" /> chưa chọn tài khoản
-          </span>
-        )}
+      </div>
+      <ScrollBar orientation="horizontal" />
+      </ScrollArea>
+      <div className="shrink-0 border-l border-[var(--hairline-soft)] px-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--stone)]" />
           <Input
             value={p.query}
             onChange={(e) => p.onQuery(e.target.value)}
             placeholder="Tìm tài khoản…"
+            aria-label="Tìm tài khoản"
             className="h-8 w-[190px] pl-8"
           />
         </div>
+      </div>
+      </div>
+      <div className="flex h-8 items-center gap-3 border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 text-[12px] text-[var(--steel)]">
+        <div className="flex w-[360px] max-w-[55%] shrink-0 items-center gap-2">
+        <span aria-live="polite" className="mm-tabular min-w-0 flex-1 truncate">
+          {none ? 'Chưa chọn tài khoản' : `Đã chọn ${p.selectedCount} tài khoản`}
+          {p.hiddenSelectedCount > 0 ? ` · ${p.hiddenSelectedCount} đang ẩn bởi bộ lọc` : ''}
+        </span>
+        <Button size="sm" variant="ghost" disabled={none} onClick={p.onClearSelection} className="h-6 px-2 text-[11px]">Bỏ chọn</Button>
+        </div>
+        <span className="ml-auto truncate text-[11px] text-[var(--stone)]">Bấm dòng để chọn · Ctrl/⌘ hoặc checkbox để chọn nhiều · Shift chọn đoạn · Bấm tên / nhấp đúp để xem</span>
       </div>
     </div>
   )

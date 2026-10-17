@@ -90,6 +90,7 @@ export function ProxyPickerDialog({
     const lat = (p: ProxyItem): number =>
       p.lastTest?.ok && p.lastTest.latency != null ? p.lastTest.latency : Number.POSITIVE_INFINITY
     let arr = items.filter((p) => {
+      if (p.status && p.status !== 'active') return false
       const t = p.lastTest
       if (onlyFree && usersOf(p).length > 0) return false
       if (!needle) return true

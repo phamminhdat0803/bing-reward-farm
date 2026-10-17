@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Chrome,
   Copy,
   Download,
@@ -13,7 +15,8 @@ import {
   Sparkles,
   Square,
   Trash2,
-  Wifi
+  Wifi,
+  X
 } from 'lucide-react'
 import type { LogLine, ProxyTestResult, RowState } from '@shared/types'
 import { Badge } from '@renderer/components/ui/badge'
@@ -37,6 +40,9 @@ type Props = {
   row: RowState | null
   open: boolean
   onOpenChange: (v: boolean) => void
+  position?: { index: number; total: number }
+  onPrevious?: () => void
+  onNext?: () => void
   busy: string | null
   refreshingId?: string | null
   logs: LogLine[]
@@ -102,10 +108,22 @@ function Bar({
   )
 }
 
-/** Drawer chi tiết tài khoản — mở khi bấm vào dòng hoặc nút “…”. */
+/** Inspect without changing batch selection; Esc closes the topmost layer first. */
 export function AccountDrawer(p: Props): React.JSX.Element {
   const [testingProxy, setTestingProxy] = useState(false)
   const [proxyTestResult, setProxyTestResult] = useState<ProxyTestResult | null>(null)
+  const closeButton = useRef<HTMLButtonElement>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const viewport = useRef<HTMLDivElement>(null)
+  const opener = useRef<HTMLElement | null>(null)
+  const viewedId = useRef(p.row?.id)
+  viewedId.current = p.row?.id
+
+  useEffect(() => {
+    setProxyTestResult(null)
+    setTestingProxy(false)
+    if (viewport.current) viewport.current.scrollTop = 0
+  }, [p.row?.id])
 
   const row = p.row
   const c = row?.cache ?? null
@@ -125,9 +143,9 @@ export function AccountDrawer(p: Props): React.JSX.Element {
     setProxyTestResult(null)
     try {
       const res = await window.api.testProxy(row.profile.proxy)
-      setProxyTestResult(res)
+      if (viewedId.current === row.id) setProxyTestResult(res)
     } finally {
-      setTestingProxy(false)
+      if (viewedId.current === row.id) setTestingProxy(false)
     }
   }
 
@@ -135,16 +153,37 @@ export function AccountDrawer(p: Props): React.JSX.Element {
     <Sheet open={p.open && !!row} onOpenChange={p.onOpenChange} modal={false}>
       <SheetContent
         side="right"
+        ref={content}
         showOverlay={false}
-        // Không tự đóng khi bấm ra ngoài: bấm sang dòng khác phải mở đúng dòng đó.
-        // (Để Radix tự dismiss thì bị lỗi "bấm dòng 2 là tắt drawer".)
-        onInteractOutside={(e) => e.preventDefault()}
+        showCloseButton={false}
+        // Keep the account table usable while inspecting. Other outside clicks dismiss.
+        onPointerDownOutside={(event) => {
+          const target = event.detail.originalEvent.target
+          if (target instanceof Element && target.closest('[data-slot="accounts-table"], [data-slot="account-toolbar"]')) event.preventDefault()
+        }}
         onFocusOutside={(e) => e.preventDefault()}
-        className="w-full border-l border-[var(--hairline)] bg-[var(--canvas)] p-0 shadow-[rgba(36,36,36,0.08)_0px_12px_16px_-4px] sm:max-w-[520px]"
+        onEscapeKeyDown={(event) => { event.preventDefault(); p.onOpenChange(false) }}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+          closeButton.current?.focus({ preventScroll: true })
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          if (opener.current?.isConnected && (document.activeElement === document.body || content.current?.contains(document.activeElement))) opener.current.focus({ preventScroll: true })
+        }}
+        className="w-full gap-0 border-l border-[var(--hairline)] bg-[var(--canvas)] p-0 shadow-none duration-200 data-[state=open]:duration-200 data-[state=closed]:duration-150 motion-reduce:animate-none sm:max-w-[520px]"
       >
         {row ? (
           <div className="flex h-full min-h-0 flex-col">
-            <SheetHeader className="border-b border-[var(--hairline-soft)] px-4 py-3">
+            <SheetHeader className="gap-2 border-b border-[var(--hairline-soft)] px-4 py-3">
+              <div className="flex h-7 items-center justify-between gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--stone)]">Chi tiết tài khoản</span>
+                <div className="flex items-center gap-2">
+                  <kbd className="text-[11px] text-[var(--stone)]">Esc</kbd>
+                  <Button ref={closeButton} size="icon-sm" variant="tertiary" aria-label="Đóng chi tiết tài khoản" title="Đóng (Esc)" onClick={() => p.onOpenChange(false)}><X className="size-4" /></Button>
+                </div>
+              </div>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <SheetTitle className="truncate text-[20px] font-semibold leading-tight">
@@ -156,6 +195,8 @@ export function AccountDrawer(p: Props): React.JSX.Element {
                 </div>
                 {c?.signedIn ? (
                   <Badge variant="success">đã đăng nhập</Badge>
+                ) : c ? (
+                  <Badge variant="destructive">chưa đăng nhập</Badge>
                 ) : (
                   <Badge variant="outline">chưa có dữ liệu</Badge>
                 )}
@@ -178,7 +219,14 @@ export function AccountDrawer(p: Props): React.JSX.Element {
               </div>
             </SheetHeader>
 
-            <ScrollArea className="min-h-0 flex-1">
+            <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-[var(--hairline-soft)] bg-[var(--surface)] px-4">
+              <span className="mm-tabular text-[12px] text-[var(--steel)]">{p.position ? `${p.position.index} / ${p.position.total} trong danh sách đang hiển thị` : 'Tài khoản ngoài bộ lọc hiện tại'}</span>
+              <div className="flex items-center gap-1">
+                <Button size="icon-sm" variant="tertiary" disabled={!p.onPrevious} onClick={p.onPrevious} aria-label="Xem tài khoản trước"><ChevronLeft className="size-3.5" /></Button>
+                <Button size="icon-sm" variant="tertiary" disabled={!p.onNext} onClick={p.onNext} aria-label="Xem tài khoản tiếp theo"><ChevronRight className="size-3.5" /></Button>
+              </div>
+            </div>
+            <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
               <div className="space-y-4 px-4 py-3.5">
               <div className="flex flex-wrap gap-2">
                 <Button

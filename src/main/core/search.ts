@@ -36,6 +36,44 @@ async function dismissBanners(page: Page): Promise<void> {
   }
 }
 
+/** Ham THUAN de test duoc (khong can trinh duyet): url + text + co marker captcha hay khong. */
+export function looksLikeRestriction(input: { url: string; text: string; hasMarkup: boolean }): boolean {
+  // CHI soi host + path, KHONG soi query — neu khong thi tu khoa "captcha la gi" se bi coi la trang xac minh.
+  try {
+    const u = new URL(input.url)
+    const host = u.hostname.toLowerCase()
+    if (host.startsWith('consent.') || /challenge|captcha/i.test(host)) return true
+    if (/\/(challenge|verify|sorry|captcha|blocked|error)(\/|$)/i.test(u.pathname)) return true
+  } catch {
+    /* url khong hop le -> bo qua phan url */
+  }
+  if (input.hasMarkup) return true
+  return /unusual traffic|verify (that )?you are human|automated queries|temporarily restricted|too many requests|unusual search activity|xác minh bạn là con người|tạm thời bị hạn chế|nhập các ký tự|xác nhận bạn là người/i.test(
+    input.text
+  )
+}
+
+/**
+ * Phat hien trang XAC MINH / CAPTCHA / gioi han cua Bing — dung chung moi noi can kiem.
+ * 2026-10-17: truoc day chi kiem khi BO QUY TAC BAT va chi kiem TRUOC moi luot; CAPTCHA hien ngay sau Enter
+ * bi coi la "khong thay ket qua" roi roi vao nhanh fallback URL (goto thang link search) => van gui tiep.
+ */
+export async function detectRestriction(page: Page): Promise<boolean> {
+  const url = page.url()
+  if (looksLikeRestriction({ url, text: '', hasMarkup: false })) return true
+  const probe = await page
+    .evaluate(() => {
+      const text = (document.body?.innerText ?? '').slice(0, 4000)
+      const marked = !!document.querySelector(
+        '#b_captcha, #captcha, .captcha, iframe[src*="captcha"], iframe[src*="challenge"], iframe[title*="captcha" i], #enforcement, [data-testid*="captcha" i]'
+      )
+      return { text, marked }
+    })
+    .catch(() => null)
+  if (!probe) return false
+  return looksLikeRestriction({ url, text: probe.text, hasMarkup: probe.marked })
+}
+
 async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () => boolean): Promise<string> {
   if (shouldStop?.()) return 'stopped'
   if (!/^https?:\/\/(www\.)?bing\.com\//.test(page.url()) || page.url().includes('rewards.bing.com')) {
@@ -52,13 +90,20 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () 
     await cancellableSleep(randInt(250, 800), shouldStop)
     if (shouldStop?.()) return 'stopped'
     await page.keyboard.press('Enter')
+    // KIEM NGAY SAU ENTER: CAPTCHA/gioi han thuong hien o day. Cho 0,7-1,6s roi doc trang;
+    // neu co xac minh thi tra 'restricted' de vong lap DUNG NGAY (khong cho ket qua, khong fallback URL).
+    await cancellableSleep(randInt(700, 1600), shouldStop)
+    if (await detectRestriction(page)) return 'restricted'
     await page.waitForSelector(RESULTS, { timeout: 20000 })
   } catch (e) {
     if (shouldStop?.()) return 'stopped'
+    // Truoc khi fallback URL: neu trang dang yeu cau xac minh thi KHONG duoc goto tiep (tranh gui them request)
+    if (await detectRestriction(page)) return 'restricted'
     how = `url (${String((e as Error).message).split('\n')[0].slice(0, 60)})`
     await page
       .goto(`https://www.bing.com/search?q=${encodeURIComponent(q)}&FORM=QBLH`, { waitUntil: 'domcontentloaded' })
       .catch(() => {})
+    if (await detectRestriction(page)) return 'restricted'
     await page.waitForSelector(RESULTS, { timeout: 20000 }).catch(() => {})
   }
   if (shouldStop?.()) return 'stopped'
@@ -67,24 +112,53 @@ async function doSearch(page: Page, q: string, cfg: CoreConfig, shouldStop?: () 
   await page.mouse.wheel(0, randInt(250, 1100)).catch(() => {})
   await humanPause(cfg, 'dwell', shouldStop)
   if (shouldStop?.()) return 'stopped'
+  if (await detectRestriction(page)) return 'restricted'
 
   if (Math.random() < cfg.search.clickResultProbability) {
-    const link = page.locator('#b_results h2 a').first()
-    if (await link.count().catch(() => 0)) {
-      try {
-        const [opened] = await Promise.all([
-          page.context().waitForEvent('page', { timeout: 3500 }).catch(() => null),
-          link.click({ timeout: 6000 }).catch(() => null)
-        ])
-        await cancellableSleep(randInt(1500, 3000), shouldStop)
-        if (opened) {
-          await opened.close().catch(() => {})
-        } else {
-          await page.goBack({ timeout: 10000 }).catch(() => {})
+    // KHONG luon bam ket qua dau tien: chon trong 1..5 ket qua tu nhien dau, bo qua quang cao va link noi bo Bing.
+    const pick = await page
+      .evaluate(() => {
+        const items = Array.from(document.querySelectorAll('#b_results > li.b_algo'))
+          .filter((li) => !li.classList.contains('b_ad') && !li.querySelector('.b_adProviderText'))
+          .slice(0, 5)
+        const links = items
+          .map((li) => li.querySelector('h2 a') as HTMLAnchorElement | null)
+          .filter((a): a is HTMLAnchorElement => !!a && !!a.href && !/^https?:\/\/(www\.)?bing\.com\//i.test(a.href))
+        if (!links.length) return null
+        // Lech ve dau nhung KHONG phai luc nao cung so 1: trong so 3,2,2,1,1
+        const weights = [3, 2, 2, 1, 1].slice(0, links.length)
+        const total = weights.reduce((a, b) => a + b, 0)
+        let r = Math.random() * total
+        for (let i = 0; i < links.length; i += 1) {
+          r -= weights[i]
+          if (r <= 0) return i
         }
-        await cancellableSleep(randInt(600, 1200), shouldStop)
-      } catch {
-        /* bo qua */
+        return 0
+      })
+      .catch(() => null)
+    if (pick != null) {
+      const link = page.locator('#b_results > li.b_algo h2 a').nth(pick)
+      if (await link.count().catch(() => 0)) {
+        try {
+          const [opened] = await Promise.all([
+            page.context().waitForEvent('page', { timeout: 3500 }).catch(() => null),
+            link.click({ timeout: 6000 }).catch(() => null)
+          ])
+          // Doc ket qua nhu nguoi that: o lai lau hon, cuon nhe truoc khi quay ve
+          await cancellableSleep(randInt(6000, 22000), shouldStop)
+          if (opened) {
+            await opened.mouse?.wheel(0, randInt(200, 900)).catch(() => {})
+            await cancellableSleep(randInt(800, 2500), shouldStop)
+            await opened.close().catch(() => {})
+          } else {
+            await page.mouse.wheel(0, randInt(200, 900)).catch(() => {})
+            await cancellableSleep(randInt(400, 1200), shouldStop)
+            await page.goBack({ timeout: 10000 }).catch(() => {})
+          }
+          await cancellableSleep(randInt(600, 1600), shouldStop)
+        } catch {
+          /* bo qua */
+        }
       }
     }
   }
@@ -100,6 +174,8 @@ export async function runSearchPass(args: {
   target: number
   nextQuery: () => string
   rememberQuery: (q: string) => void
+  reserveQuery?: (q: string) => boolean
+  releaseQuery?: (q: string) => void
   preparePage?: (page: Page) => Promise<void>
   shouldStop?: () => boolean
   /** Bao tien do ra UI (goi sau moi search + sau moi lan doc counter) */
@@ -188,36 +264,63 @@ export async function runSearchPass(args: {
   await gotoHome(page)
   emit()
 
+  // Nhip doc diem: lech ngau nhien quanh cfg.search.checkPointsEvery (±40%) thay vi dung N co dinh
+  const baseEvery = Math.max(1, cfg.search.checkPointsEvery)
+  const nextEvery = (): number => {
+    const n = randInt(Math.max(1, Math.round(baseEvery * 0.6)), Math.max(2, Math.round(baseEvery * 1.4)))
+    return n
+  }
+  let nextCheckAt = nextEvery()
+
   for (let i = 0; i < planned; i += 1) {
     if (shouldStop?.()) {
       status = 'cancelled'
       log.warn(`[${kind}] nguoi dung dung - ket thuc som sau ${searches} search`)
       break
     }
-    const q = nextQuery()
-    if (args.beforeSearch) {
-      const restricted = await page.evaluate(() => {
-        const text = document.body?.innerText ?? ''
-        const captcha = document.querySelector('#b_captcha, #captcha, iframe[src*="captcha"], iframe[src*="challenge"]')
-        return !!captcha || /unusual traffic|verify (that )?you are human|automated queries|temporarily restricted|too many requests|unusual search activity|xác minh bạn là con người|tạm thời bị hạn chế/i.test(text)
-      }).catch(() => true)
-      if (restricted) {
-        status = 'restricted'
-        args.onRestriction?.()
-        log.warn(`[${kind}] dừng theo quy tắc: cần kiểm tra giới hạn/xác minh trên trang`)
-        break
-      }
-      if (!args.beforeSearch()) {
-        status = 'policy-limit'
-        log.info(`[${kind}] đã hết ngân sách phiên/ngày hoặc quy tắc đang dừng`)
-        break
-      }
+    let q = nextQuery()
+    if (!q) {
+      status = 'keywords-exhausted'
+      log.warn(`[${kind}] Đã hết từ khoá chưa dùng trong kho chung. Nạp thêm tại tab Từ khoá.`)
+      break
+    }
+    // KIEM XAC MINH/GIOI HAN *LUON* (khong phu thuoc bo quy tac co bat hay khong):
+    // dang o trang xac minh ma van gui search tiep la lam nang them muc do bi chan.
+    if (await detectRestriction(page)) {
+      status = 'restricted'
+      args.onRestriction?.()
+      log.error(`[${kind}] Bing yêu cầu XÁC MINH (CAPTCHA/giới hạn) — DỪNG NGAY, không gửi thêm search. Kiểm tra thủ công trong trình duyệt rồi chạy lại.`)
+      break
+    }
+    // Shared, synchronous claim closes the race after the async restriction check.
+    while (q && args.reserveQuery && !args.reserveQuery(q)) q = nextQuery()
+    if (!q) {
+      status = 'keywords-exhausted'
+      log.warn(`[${kind}] Đã hết từ khoá chưa dùng trong kho chung. Nạp thêm tại tab Từ khoá.`)
+      break
+    }
+    if (args.beforeSearch && !args.beforeSearch()) {
+      args.releaseQuery?.(q)
+      status = 'policy-limit'
+      log.info(`[${kind}] đã hết ngân sách phiên/ngày hoặc quy tắc đang dừng`)
+      break
     }
     try {
       const how = await doSearch(page, q, cfg, shouldStop)
       if (shouldStop?.()) {
         status = 'cancelled'
         log.warn(`[${kind}] nguoi dung dung - ket thuc som sau ${searches} search`)
+        break
+      }
+      if (how === 'restricted') {
+        // CAPTCHA hien NGAY SAU Enter -> dung luot, khong di tiep, khong fallback URL
+        status = 'restricted'
+        args.onRestriction?.()
+        args.releaseQuery?.(q)
+        log.error(
+          `[${kind}] Bing yêu cầu XÁC MINH ngay sau khi gửi từ khoá — DỪNG LUÔN (đã gửi ${searches} search). ` +
+            `Mở trình duyệt của tài khoản này để xử lý thủ công rồi chạy lại.`
+        )
         break
       }
       rememberQuery(q)
@@ -241,7 +344,8 @@ export async function runSearchPass(args: {
       }
     }
 
-    if (searches > 0 && searches % cfg.search.checkPointsEvery === 0) {
+    // Doc diem dinh ky NHUNG lech nhau (khong dung nhip co dinh N search) — giam tinh "may moc"
+    if (searches >= nextCheckAt) {
       if (shouldStop?.()) {
         status = 'cancelled'
         break
@@ -270,6 +374,7 @@ export async function runSearchPass(args: {
       }
       lastPoints = pts
       lastToday = today
+      nextCheckAt = searches + nextEvery()
       emit()
       await gotoHome(page).catch(() => {})
     } else {

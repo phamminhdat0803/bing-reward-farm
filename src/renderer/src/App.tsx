@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { proxyTestCandidates } from '@shared/proxy-testing'
+import { KeywordsPanel } from '@renderer/components/KeywordsPanel'
+import { ScrollArea } from '@renderer/components/ui/scroll-area'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Settings2, MonitorCog, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSettings, LogLine, Profile, ProxyItem, RefreshProgress, RowState } from '@shared/types'
@@ -23,10 +26,12 @@ import { LogDock } from '@renderer/components/LogDock'
 import { StatStrip } from '@renderer/components/StatStrip'
 import { Toaster } from '@renderer/components/ui/sonner'
 import { fmtNum } from '@renderer/lib/utils'
+import { selectAccount, toggleVisibleAccounts, type AccountSelectionIntent } from '@renderer/lib/account-selection'
 
 export default function App(): React.JSX.Element {
   const [rows, setRows] = useState<RowState[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const selectionAnchor = useRef<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [logs, setLogs] = useState<LogLine[]>([])
   /** Tien do search truc tiep theo profile (day tu main moi search) */
@@ -49,10 +54,10 @@ export default function App(): React.JSX.Element {
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
   const [browserCount, setBrowserCount] = useState(0)
-  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone' | 'history' | 'settings'>(
+  const [tab, setTab] = useState<'accounts' | 'proxies' | 'phone' | 'history' | 'settings' | 'keywords'>(
     () => {
       const t = new URLSearchParams(location.search).get('tab')
-      return t === 'proxies' || t === 'phone' || t === 'history' || t === 'settings' ? t : 'accounts'
+      return t === 'keywords' || t === 'proxies' || t === 'phone' || t === 'history' || t === 'settings' ? t : 'accounts'
     }
   )
   const [phoneAppCount, setPhoneAppCount] = useState(0)
@@ -95,8 +100,14 @@ export default function App(): React.JSX.Element {
   const reload = useCallback(async (): Promise<void> => {
     const list = await window.api.listState()
     setRows(list)
-    setActiveId((cur) => cur ?? list[0]?.id ?? null)
+    const ids = new Set(list.map(row => row.id))
+    setSelectedIds(current => current.every(id => ids.has(id)) ? current : current.filter(id => ids.has(id)))
+    setActiveId(current => current && ids.has(current) ? current : new URLSearchParams(location.search).get('drawer') === '1' ? list[0]?.id ?? null : null)
   }, [])
+
+  useEffect(() => {
+    if (tab !== 'accounts') setDrawerOpen(false)
+  }, [tab])
 
   useEffect(() => {
     // Mo app: CHI doc cache, KHONG mo trinh duyet
@@ -234,28 +245,32 @@ export default function App(): React.JSX.Element {
       toast.info('Đang có lượt kiểm tra proxy chạy — chờ xong hoặc bấm Dừng.')
       return
     }
-    const total = ids?.length ?? proxies.length
-    if (total === 0) {
-      toast.error('Kho proxy đang trống.')
-      return
-    }
-    setProxyTest({ done: 0, total, ok: 0, error: 0 })
+    setProxyTest({ done: 0, total: 0, ok: 0, error: 0 })
     try {
-      const res = await window.api.testAllProxies(ids)
+      const latest = await window.api.listProxies()
+      setProxies(latest)
+      const candidates = proxyTestCandidates(latest, ids)
+      if (!candidates.length) {
+        toast.info('Không có proxy được phép kiểm tra (đã bỏ qua blacklist/không dùng).')
+        return
+      }
+      setProxyTest({ done: 0, total: candidates.length, ok: 0, error: 0 })
+      const res = await window.api.testAllProxies(candidates.map(p => p.id))
       const ok = Object.values(res).filter((r) => r.ok).length
-      toast.success(`Kiểm tra xong: ${ok}/${total} proxy hoạt động`)
+      toast.success(`Kiểm tra xong: ${ok}/${Object.keys(res).length} proxy hoạt động`)
     } catch (e) {
       toast.error(String((e as Error).message).slice(0, 200))
     } finally {
-      const l = await window.api.listProxies()
-      setProxies(l)
-      setProxyCount(l.length)
+      try {
+        const l = await window.api.listProxies()
+        setProxies(l)
+        setProxyCount(l.length)
+      } catch { /* Giữ danh sách hiện tại nếu tải lại thất bại. */ }
       setProxyTest(null)
     }
   }
 
   const anyRunning = rows.some((r) => r.run.running)
-  const anyBrowserOpen = rows.some((r) => r.browser.running)
 
   const act = async (key: string, fn: () => Promise<void>): Promise<void> => {
     setBusy(key)
@@ -320,7 +335,16 @@ export default function App(): React.JSX.Element {
       await reload()
     })
 
-  const targetIds = selectedIds.length ? selectedIds : activeId ? [activeId] : []
+  const targetIds = selectedIds
+  const selectedRows = rows.filter(row => targetIds.includes(row.id))
+  const hiddenSelectedCount = targetIds.filter(id => !filtered.some(row => row.id === id)).length
+  const detailIndex = filtered.findIndex(row => row.id === activeId)
+  const selectRow = (id: string, intent?: AccountSelectionIntent): void => {
+    const next = selectAccount(selectedIds, filtered.map(row => row.id), id, selectionAnchor.current, intent)
+    selectionAnchor.current = next.anchor
+    setSelectedIds(next.ids)
+  }
+  const clearSelection = (): void => { setSelectedIds([]); selectionAnchor.current = null }
 
   // Mỗi lúc chỉ mở MỘT lớp phủ (dialog / drawer / trình duyệt) — tránh Radix giữ focus chéo
   const openAccountDialog = (profile: Profile | null): void => {
@@ -344,6 +368,7 @@ export default function App(): React.JSX.Element {
   /** Hỏi rồi xoá tài khoản khỏi danh sách (dùng cho toolbar + menu chuột phải). */
   const confirmRemove = (ids: string[]): void => {
     if (!ids.length) return
+    setDrawerOpen(false)
     setConfirm({
       title: ids.length === 1 ? 'Xoá tài khoản khỏi danh sách?' : `Xoá ${ids.length} tài khoản khỏi danh sách?`,
       description: 'Chỉ xoá khỏi danh sách quản lý — KHÔNG xoá thư mục profile, nên có thể thêm lại sau.',
@@ -351,8 +376,8 @@ export default function App(): React.JSX.Element {
       danger: true,
       onConfirm: async () => {
         for (const id of ids) await window.api.removeProfile(id)
-        setSelectedIds([])
-        setActiveId(null)
+        setSelectedIds(current => current.filter(id => !ids.includes(id)))
+        setActiveId(current => current && ids.includes(current) ? null : current)
         await reload()
         toast.success(`Đã xoá ${ids.length} tài khoản khỏi danh sách.`)
       }
@@ -417,6 +442,7 @@ export default function App(): React.JSX.Element {
                 { id: 'proxies', label: 'Proxy' },
                 { id: 'phone', label: 'Điện thoại' },
                 { id: 'history', label: 'Lịch sử' },
+                { id: 'keywords', label: 'Từ khoá' },
                 { id: 'settings', label: 'Cài đặt' }
               ] as const
             ).map((t) => (
@@ -519,6 +545,20 @@ export default function App(): React.JSX.Element {
                   </Select>
                 </div>
                 <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
+                  <span className="text-[12.5px]" title="Áp dụng từ vòng lịch kế tiếp; vẫn tuân thủ giới hạn tổng và hàng đợi từng tài khoản">Điều phối lịch</span>
+                  <Select value={String(settings?.autoParallelRuns ?? 1)} onValueChange={async value => {
+                    try {
+                      const parallel = Number(value)
+                      const next = await window.api.setSettings({ autoParallelRuns: parallel })
+                      setSettingsState(next)
+                      toast.info(`Vòng lịch kế tiếp: ${parallel === 1 ? 'chạy tuần tự' : `chạy song song tối đa ${parallel} tài khoản`}. Vẫn tuân thủ giới hạn tổng.`)
+                    } catch (e) { toast.error((e as Error).message) }
+                  }}>
+                    <SelectTrigger aria-label="Điều phối lịch tự động" className="h-7 w-[148px] shrink-0"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="1">Tuần tự (1 acc)</SelectItem>{[2, 3, 4, 5, 6, 8, 10].map(n => <SelectItem key={n} value={String(n)}>Song song {n} acc</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between gap-3 whitespace-nowrap rounded-[8px] px-2 py-1.5 hover:bg-[var(--surface-soft)]">
                   <span className="text-[12.5px]">Cập nhật song song</span>
                   <Select
                     value={String(settings?.refreshParallel ?? 3)}
@@ -590,23 +630,25 @@ export default function App(): React.JSX.Element {
             <AppToolbar
               selectedCount={targetIds.length}
               runningCount={rows.filter((x) => x.run.running).length}
-              anyBrowserOpen={anyBrowserOpen}
-              anyRunning={anyRunning}
+              selectedBrowserCount={selectedRows.filter(row => row.browser.running).length}
+              selectedRunningCount={selectedRows.filter(row => row.run.running).length}
+              hiddenSelectedCount={hiddenSelectedCount}
               busy={busy}
               refreshing={refreshing}
               query={query}
               onQuery={setQuery}
+              onClearSelection={clearSelection}
               onAdd={() => openAccountDialog(null)}
               onEdit={() => {
-                if (activeRow) openAccountDialog(activeRow.profile)
+                if (selectedRows.length === 1) openAccountDialog(selectedRows[0].profile)
               }}
               onRemove={() => confirmRemove(targetIds)}
               onOpenBrowser={() => void Promise.all(targetIds.map((id) => withBrowser(id, 'open')))}
               onCloseBrowser={() => void Promise.all(targetIds.map((id) => withBrowser(id, 'close')))}
               onLoginWindow={() => {
-                if (activeId) {
+                if (targetIds.length === 1) {
                   void act('login', async () => {
-                    await window.api.openLoginWindow(activeId)
+                    await window.api.openLoginWindow(targetIds[0])
                   })
                 }
               }}
@@ -614,7 +656,7 @@ export default function App(): React.JSX.Element {
               onStop={() =>
                 void act('stop', async () => {
                   const target = targetIds.filter((id) => rows.some((r) => r.id === id && r.run.running))
-                  const toStop = target.length ? target : rows.filter((x) => x.run.running).map((x) => x.id)
+                  const toStop = targetIds.length ? target : rows.filter((x) => x.run.running).map((x) => x.id)
                   if (!toStop.length) return
                   for (const id of toStop) await window.api.stopRun(id)
                   toast.info(`Đã dừng chạy ${toStop.length} tài khoản.`)
@@ -628,24 +670,18 @@ export default function App(): React.JSX.Element {
             <AccountsTable
               rows={filtered}
               selectedIds={selectedIds}
-              activeId={activeId}
+              activeId={drawerOpen ? activeId : null}
               busy={busy}
               refreshingId={refreshingId}
-              onToggle={(id) =>
-                setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-              }
+              onSelect={selectRow}
               onToggleAll={() =>
-                setSelectedIds((prev) => (prev.length === filtered.length ? [] : filtered.map((r) => r.id)))
+                setSelectedIds(prev => toggleVisibleAccounts(prev, filtered.map(row => row.id)))
               }
               onOpenDetail={(id) => openDrawer(id)}
               onOpenBrowser={(id) => void withBrowser(id, 'open')}
               onCloseBrowser={(id) => void withBrowser(id, 'close')}
               onRefresh={(id) => void refreshPoints([id])}
-              onRun={(id, kinds) => {
-                // kinds = ['__all__'] nghia la chay full cho TAT CA tai khoan dang chon (menu chuot phai)
-                if (kinds.includes('__all__')) void runKinds(targetIds.length ? targetIds : [id], ['desktop', 'daily', 'earn', 'mobile'])
-                else void runKinds([id], kinds)
-              }}
+              onRun={(id, kinds) => void runKinds([id], kinds)}
               onStop={(id) => void stopRunSingle(id)}
               proxyLabels={Object.fromEntries(proxies.map((p) => [p.id, p.label]))}
               proxyHealth={proxyHealth}
@@ -654,7 +690,6 @@ export default function App(): React.JSX.Element {
                 if (r) openAccountDialog(r.profile)
               }}
               onRemove={(id) => confirmRemove([id])}
-              onBulkRemove={() => confirmRemove(targetIds)}
               onSignOut={(id) =>
                 void act(`signout:${id}`, async () => {
                   const r = await window.api.signOut(id)
@@ -665,6 +700,8 @@ export default function App(): React.JSX.Element {
               }
             />
           </>
+        ) : tab === 'keywords' ? (
+          <KeywordsPanel />
         ) : tab === 'settings' ? (
           <SettingsPanel rows={rows} onSaved={() => {
             void window.api.getSettings().then(setSettingsState)
@@ -730,7 +767,8 @@ export default function App(): React.JSX.Element {
                 <span className="text-[12.5px] font-semibold">Đang chạy ({runningRows.length})</span>
                 <span className="mm-micro">bấm ra ngoài để đóng</span>
               </div>
-              <div className="h-[264px] shrink-0 overflow-y-auto overflow-x-hidden p-2">
+              <ScrollArea className="h-[264px] shrink-0" data-slot="running-accounts-scroll">
+                <div className="p-2 pr-3">
                 {runningRows.map((r) => {
                   const pr = progress[r.id]
                   const p = pr ? Math.round((pr.done / Math.max(1, pr.total)) * 100) : 0
@@ -777,7 +815,7 @@ export default function App(): React.JSX.Element {
                   )
                 })}
                 {queue.length > 0 ? (
-                  <div className="max-h-[132px] shrink-0 overflow-y-auto border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
+                  <div className="border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
                     <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
                       <span className="text-[12px] font-semibold text-[var(--stone)]">
                         Lệnh chờ của cùng acc ({queue.reduce((s, q) => s + q.pending, 0)})
@@ -820,7 +858,7 @@ export default function App(): React.JSX.Element {
                   </div>
                 ) : null}
                 {waiting.length > 0 ? (
-                  <div className="max-h-[132px] shrink-0 overflow-y-auto border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
+                  <div className="border-t border-[var(--hairline-soft)] px-2 pt-2 pb-2">
                     <div className="mb-1.5 px-1 text-[12px] font-semibold text-[var(--stone)]">
                       Chờ slot ({waiting.length}) — giới hạn tổng {queueMax}
                     </div>
@@ -835,7 +873,8 @@ export default function App(): React.JSX.Element {
                     ))}
                   </div>
                 ) : null}
-              </div>
+                </div>
+              </ScrollArea>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
@@ -844,6 +883,8 @@ export default function App(): React.JSX.Element {
 
         <LogDock
           lines={logs}
+          profileNames={Object.fromEntries(rows.map(row => [row.id, row.profile.name]))}
+          onNavigate={destination => setTab(destination)}
           running={anyRunning}
           profileId={activeRow?.id ?? null}
           profileName={activeRow?.profile.name ?? null}
@@ -853,8 +894,11 @@ export default function App(): React.JSX.Element {
 
       <AccountDrawer
         row={activeRow}
-        open={drawerOpen}
+        open={drawerOpen && tab === 'accounts' && !dialogOpen && !browsersOpen && !confirm}
         onOpenChange={setDrawerOpen}
+        position={detailIndex >= 0 ? { index: detailIndex + 1, total: filtered.length } : undefined}
+        onPrevious={detailIndex > 0 ? () => openDrawer(filtered[detailIndex - 1].id) : undefined}
+        onNext={detailIndex >= 0 && detailIndex < filtered.length - 1 ? () => openDrawer(filtered[detailIndex + 1].id) : undefined}
         busy={busy}
         refreshingId={refreshingId}
         logs={logs.filter((l) => !l.profileId || l.profileId === activeRow?.id)}

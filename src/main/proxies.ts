@@ -1,3 +1,5 @@
+import { proxyTestCandidates } from '../shared/proxy-testing'
+import { parseProxyCsv } from '../shared/proxy-csv'
 import { recordProxyTest } from './proxy-history'
 // Kho proxy dung chung: %APPDATA%\bing-reward-farm\proxies.json
 // Tai khoan chi can chon proxy theo id (profile.proxyId) -> khong phai go tay chuoi proxy.
@@ -60,7 +62,7 @@ export function startHealthLoop(opts: { everyMs?: number; concurrency?: number }
   const conc = Math.max(1, opts.concurrency ?? 4)
   let cursor = 0
   const tick = async (): Promise<void> => {
-    const all = listProxies()
+    const all = listProxies().filter(p => !p.status || p.status === 'active')
     if (all.length === 0) return
     // Chi do toi da 12 proxy moi chu ky va bo qua proxy dang cooldown -> khong bao gio do 251 proxy cung luc
     const batch: ProxyItem[] = []
@@ -141,6 +143,19 @@ export function resolveProxyUrl(profile: { proxyId?: string | null; proxy?: stri
 }
 
 /** Them nhieu proxy 1 luc (dan danh sach, moi dong 1 proxy). Bo qua trung va dong trong. */
+export function importProxyCsv(text: string): { added: number; skipped: number } {
+  const entries = parseProxyCsv(text)
+  const st = load()
+  let added = 0, skipped = 0
+  for (const entry of entries) {
+    if (st.items.some(p => p.url === entry.url)) { skipped++; continue }
+    st.items.push({ ...entry, label: entry.label || entry.url, id: `proxy-${Date.now()}-${Math.random().toString(36).slice(2)}`, createdAt: new Date().toISOString() })
+    added++
+  }
+  if (added) save(st)
+  return { added, skipped }
+}
+
 export function addProxyBulk(lines: string[]): { added: ProxyItem[]; skipped: number } {
   const st = load()
   const existing = new Set(st.items.map((p) => p.url))
@@ -224,6 +239,9 @@ const healthCache: Record<string, ProxyHealth> = {}
  * Ket qua fail bi cooldown 5 phut de khong test lai lien tuc (tranh ping-pong A<->B).
  */
 export async function checkProxyHealth(url: string, opts: { force?: boolean } = {}): Promise<ProxyHealth> {
+  if (listProxies().some(p => p.url === url && p.status && p.status !== 'active')) {
+    throw new Error('Proxy đang blacklist/không dùng. Bật lại trước khi kiểm tra.')
+  }
   const now = Date.now()
   const cached = healthCache[url]
   if (!opts.force && cached && (cooldownUntil[url] ?? 0) > now) return cached
@@ -322,6 +340,7 @@ export function addProxy(input: Partial<ProxyItem>): ProxyItem {
     label,
     url,
     note: input.note,
+    status: input.status,
     createdAt: new Date().toISOString()
   }
   st.items.push(item)
@@ -333,6 +352,7 @@ export function updateProxy(id: string, patch: Partial<ProxyItem>): ProxyItem {
   const st = load()
   const p = st.items.find((x) => x.id === id)
   if (!p) throw new Error(`khong thay proxy "${id}"`)
+  if (patch.status !== undefined && !['active', 'unused', 'blacklisted'].includes(patch.status)) throw new Error('Trạng thái không hợp lệ')
   Object.assign(p, patch, { id: p.id })
   save(st)
   return p
@@ -365,12 +385,13 @@ export function removeProxies(ids: string[]): { removed: number } {
 export async function testAndSave(id: string): Promise<ProxyTestResult> {
   const item = getProxy(id)
   if (!item) return { ok: false, error: 'khong thay proxy' }
+  if (item.status && item.status !== 'active') return { ok: false, error: 'Proxy đang blacklist/không dùng' }
   const res = await testProxyWithHealth(item.url)
   const at = new Date().toISOString()
   updateProxy(id, { lastTest: { ...res, at } })
   // Lich su: ghi lai moi lan test de biet proxy nao chet lien tuc
   recordProxyTest(id, item.url, item.label, { ...res, at })
-  console.log('[health] test thu cong:', item.url, '->', res.ok ? 'OK' : `FAIL (${res.error ?? ''})`)
+  console.log('[health] test thu cong:', item.id, '->', res.ok ? 'OK' : `FAIL (${res.error ?? ''})`)
   healthNotifier?.()
   return res
 }
@@ -401,14 +422,14 @@ export async function testAll(
   onProgress?: (p: ProxyTestProgress) => void
 ): Promise<Record<string, ProxyTestResult>> {
   cancelTesting = false
-  const all = listProxies()
-  const items = filterIds && filterIds.length > 0 ? all.filter((p) => filterIds.includes(p.id)) : all
+  const items = proxyTestCandidates(listProxies(), filterIds)
   const out: Record<string, ProxyTestResult> = {}
   let i = 0
   let done = 0
   let okCount = 0
   let errorCount = 0
   let lastSave = Date.now()
+  let skipped = 0
 
   const worker = async (): Promise<void> => {
     while (i < items.length && !cancelTesting) {
@@ -416,6 +437,11 @@ export async function testAll(
       i += 1
       const item = items[idx]
       if (!item) break
+      const current = getProxy(item.id)
+      if (!current || current.url !== item.url || !proxyTestCandidates(listProxies(), [item.id]).length) {
+        skipped++
+        continue
+      }
       // eslint-disable-next-line no-await-in-loop
       const res = await testProxyWithHealth(item.url)
       const at = new Date().toISOString()
@@ -428,7 +454,7 @@ export async function testAll(
 
       onProgress?.({
         done,
-        total: items.length,
+        total: items.length - skipped,
         ok: okCount,
         error: errorCount,
         id: item.id,

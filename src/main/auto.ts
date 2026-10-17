@@ -1,3 +1,4 @@
+import { dispatchAutoProfiles } from './auto-dispatch'
 // Che do TU DONG: cu moi N phut/gio chay lai cac task con thieu cho toi khi xong diem trong ngay.
 //
 // Yeu cau nguoi dung (2026-10-16):
@@ -48,6 +49,8 @@ type AutoState = {
   remediations: number
   /** acc da thu task offers trong ngay (chi thu 1 lan, khong retry 3 lan) */
   triedOffers?: Record<string, boolean>
+  /** acc dang cho nguoi dung xu ly XAC MINH/CAPTCHA thu cong (ISO) — tam bo qua khi chay tu dong */
+  restricted?: Record<string, string>
   profiles: Record<string, Partial<Record<AutoTask, TaskState>>>
 }
 
@@ -162,7 +165,7 @@ export function pickCleanProxies(count = 3): { id: string; label: string; latenc
   }
   const seen = new Set<string>()
   return proxies
-    .filter((p) => p.lastTest?.ok && !used.has(p.url))
+    .filter((p) => (!p.status || p.status === 'active') && p.lastTest?.ok && !used.has(p.url))
     .sort((a, b) => (a.lastTest?.latency ?? 99999) - (b.lastTest?.latency ?? 99999))
     .filter(p => { if (seen.has(p.url)) return false; seen.add(p.url); return true })
     .slice(0, count)
@@ -170,7 +173,14 @@ export function pickCleanProxies(count = 3): { id: string; label: string; latenc
 }
 
 /** Kiem tra toan bo proxy roi gan lai 3 proxy sach cho acc. */
-async function remediateProxies(profile: Profile): Promise<{ ok: boolean; detail: string }> {
+let repairQueue: Promise<void> = Promise.resolve()
+function remediateProxies(profile: Profile): Promise<{ ok: boolean; detail: string }> {
+  const result = repairQueue.then(() => remediateProxiesUnlocked(profile))
+  repairQueue = result.then(() => {}, () => {})
+  return result
+}
+async function remediateProxiesUnlocked(profile: Profile): Promise<{ ok: boolean; detail: string }> {
+  if (stopRequested) return { ok: false, detail: 'Đã dừng lịch; không gán lại proxy' }
   const config = getPolicy(), rule = accountPolicy(config, profile.id)
   if (config.enabled && rule.proxyRecovery === 'pause') {
     pausePolicy(profile, 'Proxy lỗi — tạm dừng theo cấu hình, không tự gán lại')
@@ -179,10 +189,11 @@ async function remediateProxies(profile: Profile): Promise<{ ok: boolean; detail
   state.remediations += 1
   log(`${profile.name}: proxy loi -> kiem tra toan bo kho proxy`)
   await testAll(15)
+  if (stopRequested) return { ok: false, detail: 'Đã dừng lịch; không gán lại proxy' }
   const clean = pickCleanProxies(config.enabled ? rule.proxyCount : 3)
   if (!clean.length) {
     // Het proxy sach -> day la viec CAN NGUOI HO TRO (them proxy), ghi ho so rieng
-    const alive = listProxies().filter((p) => p.lastTest?.ok).length
+    const alive = listProxies().filter((p) => (!p.status || p.status === 'active') && p.lastTest?.ok).length
     const file = path.join(ESC_DIR(), `${state.date}-${profile.id}-proxy.json`)
     try {
       fs.mkdirSync(ESC_DIR(), { recursive: true })
@@ -310,14 +321,27 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
   try {
     const profiles = loadStore().profiles
     log(`vong ${state.cycles + 1} (${reason}) — ${profiles.length} acc`)
-    for (let profile of profiles) {
-      if (stopRequested) { detail.push('Đã dừng lịch; không bắt đầu tài khoản tiếp theo'); break }
+    const settings = getSettings()
+    const requested = settings.autoParallelRuns ?? 1
+    const parallel = Math.max(1, Math.min(requested, settings.maxParallelRuns > 0 ? settings.maxParallelRuns : requested))
+    log(`Điều phối lịch: ${parallel === 1 ? 'tuần tự' : `song song tối đa ${parallel} tài khoản`}`)
+    const runProfile = async (initialProfile: Profile): Promise<void> => {
+      let profile = initialProfile
+      if (stopRequested) { detail.push('Đã dừng lịch; không bắt đầu tài khoản tiếp theo'); return }
       const busy = runState(profile.id)
-      if (busy.running || busy.queued) { detail.push(`${profile.name}: đang chạy/chờ, không xếp thêm`); continue }
+      if (busy.running || busy.queued) { detail.push(`${profile.name}: đang chạy/chờ, không xếp thêm`); return }
       const pend = pendingTasks(profile)
       if (!pend.length) {
         detail.push(`${profile.name}: ${getPolicy().enabled ? policyPlan(profile).reason : 'đủ điểm'}`)
-        continue
+        return
+      }
+      // Dang cho nguoi dung xu ly XAC MINH -> khong chay tiep (tranh gui search khi trang dang bat xac minh)
+      const restrictedAt = state.restricted?.[profile.id]
+      if (restrictedAt) {
+        detail.push(
+          `${profile.name}: tạm bỏ qua — đang chờ bạn xử lý XÁC MINH thủ công (từ ${new Date(restrictedAt).toLocaleTimeString('vi-VN')})`
+        )
+        return
       }
       // --- proxy: kiem tra chain, remediate neu chet het ---
       let chain = resolveProxyChain(profile)
@@ -326,7 +350,7 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
         if (!pre.live.length) {
           const fix = await remediateProxies(profile)
           detail.push(`${profile.name}: proxy chết hết -> ${fix.ok ? `gán lại ${fix.detail}` : fix.detail}`)
-          if (!fix.ok) continue
+          if (!fix.ok) return
           const fresh = loadStore().profiles.find((p) => p.id === profile.id) ?? profile
           chain = resolveProxyChain(fresh)
           profile = fresh
@@ -340,8 +364,11 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
       const runnable = pend.filter((t) => !taskState(t).escalated)
       if (!runnable.length) {
         detail.push(`${profile.name}: ${pend.length} task đã leo thang, chờ phân tích`)
-        continue
+        return
       }
+      if (stopRequested) return
+      const latestState = runState(profile.id)
+      if (latestState.running || latestState.queued) { detail.push(`${profile.name}: đã có lượt chạy/chờ, không xếp thêm`); return }
       const before = get(profile.id)
       const beforeProgress = Object.fromEntries(runnable.map((t) => [t, progressOf(profile.id, t)]))
       log(`${profile.name}: chạy ${runnable.join(', ')} (còn thiếu ${pend.length} task)`)
@@ -375,20 +402,22 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
           }
         }
         detail.push(`${profile.name}: không chạy được (${res.error ?? '?'})`)
-        continue
+        return
       }
       // cho run xong (startRun tra ve ngay khi bat dau)
-      const t0 = Date.now()
-      while (runState(profile.id).running && !stopRequested && Date.now() - t0 < 20 * 60 * 1000) {
+      while (!stopRequested && (runState(profile.id).running || runState(profile.id).queued)) {
         await new Promise((r) => setTimeout(r, 3000))
       }
-      if (stopRequested) break
+      if (stopRequested) return
       if (getPolicy().enabled) {
         detail.push(`${profile.name}: ${policyPlan(profile).reason}`)
-        continue
+        return
       }
       // diem bao cao tre 1-2 phut -> cho them roi doc lai
-      await new Promise((r) => setTimeout(r, 90_000))
+      for (let elapsed = 0; elapsed < 90000 && !stopRequested; elapsed += 3000) {
+        await new Promise((r) => setTimeout(r, 3000))
+      }
+      if (stopRequested) return
       const after = get(profile.id)
 
       // Run co the dung giua chung vi CA 3 PROXY DEU CHET -> day la loi HA TANG, khong tinh la loi task.
@@ -398,7 +427,26 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
         detail.push(
           `${profile.name}: run dừng vì proxy chết giữa chừng -> ${fix.ok ? `đã gán lại ${fix.detail}` : fix.detail} (không tính là lỗi task)`
         )
-        continue
+        return
+      }
+
+      // Bing yeu cau XAC MINH/CAPTCHA -> KHONG tinh la loi task, va TAM BO QUA acc nay cho toi khi nguoi dung xu ly.
+      const restricted = runLog.some((l) => /XÁC MINH|CAPTCHA/i.test(l))
+      if (restricted) {
+        ;(state.restricted ??= {})[profile.id] = new Date().toISOString()
+        saveState()
+        detail.push(
+          `${profile.name}: Bing yêu cầu XÁC MINH — tạm bỏ qua tài khoản này cho tới khi bạn xử lý thủ công (không tính là lỗi task)`
+        )
+        log(`${profile.name}: cần xử lý xác minh thủ công trong trình duyệt — đã tạm bỏ qua khi chạy tự động`)
+        onChanged?.()
+        return
+      }
+      // Chay sach (khong bi xac minh) -> tu go co "dang cho xu ly"
+      if (state.restricted?.[profile.id]) {
+        delete state.restricted[profile.id]
+        saveState()
+        log(`${profile.name}: đã chạy sạch trở lại — gỡ trạng thái chờ xử lý xác minh`)
       }
 
       for (const t of runnable) {
@@ -432,6 +480,11 @@ export async function runAutoCycle(reason = 'theo chu ky'): Promise<{ cycles: nu
         }
       }
     }
+    await dispatchAutoProfiles(profiles, parallel, runProfile, () => stopRequested, (profile, error) => {
+      const message = String((error as Error).message).slice(0, 160)
+      detail.push(`${profile.name}: lỗi điều phối (${message})`)
+      log(`${profile.name}: lỗi điều phối (${message})`)
+    })
     state.cycles += 1
     state.lastCycleAt = new Date().toISOString()
     state.lastCycleResult = detail.join(' · ').slice(0, 2000)

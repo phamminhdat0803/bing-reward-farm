@@ -25,7 +25,7 @@ export function selectQuickProxies(items: ProxyItem[], rows: RowState[], current
       ? item.lastTest.latency
       : Infinity
   const candidates = items
-    .filter(item => !used.has(item.url) && item.lastTest?.ok !== false)
+    .filter(item => (!item.status || item.status === 'active') && !used.has(item.url) && item.lastTest?.ok !== false)
     .sort((a, b) => Number(!!b.lastTest?.ok) - Number(!!a.lastTest?.ok) || latency(a) - latency(b))
   const seen = new Set<string>()
   const picks: ProxyItem[] = []

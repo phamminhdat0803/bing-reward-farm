@@ -30,6 +30,8 @@ export type Settings = {
    * 0 = tat · 60000 = moi phut · 3600000 = moi gio · 10800000 = moi 3 gio.
    */
   autoEveryMs: number
+  /** Auto-cycle account workers: 1 = sequential; independent from refreshParallel. */
+  autoParallelRuns: number
 }
 
 const DEFAULTS: Settings = {
@@ -39,7 +41,8 @@ const DEFAULTS: Settings = {
   noDirectFallback: true,
   runHeadless: false,
   maxParallelRuns: 0,
-  autoEveryMs: 0
+  autoEveryMs: 0,
+  autoParallelRuns: 1
 }
 
 const FILE = (): string => path.join(app.getPath('userData'), 'settings.json')
@@ -49,6 +52,7 @@ export function getSettings(): Settings {
   try {
     const s = JSON.parse(fs.readFileSync(FILE(), 'utf8')) as Partial<Settings>
     const settings = { ...DEFAULTS, ...s }
+    if (!Number.isSafeInteger(settings.autoParallelRuns) || settings.autoParallelRuns < 1 || settings.autoParallelRuns > 10) settings.autoParallelRuns = 1
     if (!(AUTO_INTERVALS as readonly number[]).includes(settings.autoEveryMs)) settings.autoEveryMs = 0
     return settings
   } catch {
@@ -57,6 +61,7 @@ export function getSettings(): Settings {
 }
 
 export function setSettings(patch: Partial<Settings>): Settings {
+  if (patch.autoParallelRuns !== undefined && (!Number.isSafeInteger(patch.autoParallelRuns) || patch.autoParallelRuns < 1 || patch.autoParallelRuns > 10)) throw new Error('Điều phối tự động phải từ 1 đến 10 tài khoản.')
   if (patch.autoEveryMs !== undefined && !(AUTO_INTERVALS as readonly number[]).includes(patch.autoEveryMs)) throw new Error('Chu kỳ tự động không hợp lệ')
   const next = { ...getSettings(), ...patch }
   try {

@@ -1,3 +1,6 @@
+import type { ProxyFillOptions, ProxyFillState } from '../shared/proxy-auto-fill'
+import type { KeywordAiConfig, KeywordAiConfigInput, KeywordAiJob, KeywordAiRequest } from '../shared/keyword-ai'
+import type { KeywordLibrary } from '../shared/keywords'
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { AutomationPolicy, PolicyPlan } from '../shared/policy'
@@ -17,6 +20,16 @@ import type { ProxyStat,
 } from '../shared/types'
 
 const api = {
+  proxyAutoFillState: (): Promise<ProxyFillState> => ipcRenderer.invoke('proxies:autoFillState'),
+  proxyAutoFill: (options: ProxyFillOptions): Promise<ProxyFillState> => ipcRenderer.invoke('proxies:autoFill', options),
+  getKeywordAiConfig: (): Promise<KeywordAiConfig> => ipcRenderer.invoke('keyword-ai:getConfig'),
+  saveKeywordAiConfig: (config: KeywordAiConfigInput): Promise<KeywordAiConfig> => ipcRenderer.invoke('keyword-ai:saveConfig', config),
+  testKeywordAi: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('keyword-ai:test'),
+  getKeywordAiJob: (): Promise<KeywordAiJob> => ipcRenderer.invoke('keyword-ai:job'),
+  startKeywordAi: (request: KeywordAiRequest): Promise<KeywordAiJob> => ipcRenderer.invoke('keyword-ai:start', request),
+  stopKeywordAi: (): Promise<KeywordAiJob> => ipcRenderer.invoke('keyword-ai:stop'),
+  getKeywords: (): Promise<KeywordLibrary> => ipcRenderer.invoke('keywords:get'),
+  saveKeywords: (text: string, mode: 'append' | 'replace'): Promise<KeywordLibrary> => ipcRenderer.invoke('keywords:save', { text, mode }),
   getAutomationPolicy: (): Promise<AutomationPolicy> => ipcRenderer.invoke('policy:get'),
   saveAutomationPolicy: (config: AutomationPolicy): Promise<AutomationPolicy> => ipcRenderer.invoke('policy:save', config),
   previewAutomationPolicy: (config?: AutomationPolicy): Promise<PolicyPlan[]> => ipcRenderer.invoke('policy:preview', config),
@@ -39,6 +52,7 @@ const api = {
   testProxy: (proxyStr: string): Promise<ProxyTestResult> => ipcRenderer.invoke('proxy:test', proxyStr),
 
   // ---------- Kho proxy (tab "Proxy") ----------
+  importProxyCsv: (text: string): Promise<{ok: boolean; added?: number; skipped?: number; error?: string}> => ipcRenderer.invoke('proxies:importCsv', text),
   listProxies: (): Promise<ProxyItem[]> => ipcRenderer.invoke('proxies:list'),
   addProxy: (input: Partial<ProxyItem>): Promise<{ ok: boolean; item?: ProxyItem; error?: string }> =>
     ipcRenderer.invoke('proxies:add', input),

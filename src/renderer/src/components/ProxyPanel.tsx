@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { ProxyAutoFillButton } from './ProxyAutoFillButton'
+import { useVirtualRows } from '@renderer/lib/use-virtual-rows'
+import { proxyTestCandidates } from '@shared/proxy-testing'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   ArrowUpDown,
@@ -58,7 +61,7 @@ import {
 import { timeAgo } from '@renderer/lib/utils'
 import type { ProxyItem, ProxyStat, RowState } from '@shared/types'
 
-type StatusFilter = 'all' | 'ok' | 'error' | 'untested' | 'dead10'
+type StatusFilter = 'all' | 'ok' | 'error' | 'untested' | 'dead5' | 'dead7' | 'dead10' | 'active' | 'unused' | 'blacklisted'
 type ProtocolFilter = 'all' | 'socks5' | 'socks4' | 'http'
 type UsageFilter = 'all' | 'used' | 'unused'
 type SortBy = 'default' | 'latency-asc' | 'latency-desc' | 'label' | 'tested'
@@ -76,7 +79,12 @@ const statusLabels: Record<StatusFilter, string> = {
   ok: 'Hoạt động',
   error: 'Lỗi',
   untested: 'Chưa test',
-  dead10: 'Chết 10 lần liên tiếp'
+  active: 'Đang bật',
+  unused: 'Không dùng',
+  blacklisted: 'Blacklist',
+  dead5: 'Chết ≥5 lần liên tiếp',
+  dead7: 'Chết ≥7 lần liên tiếp',
+  dead10: 'Chết ≥10 lần liên tiếp'
 }
 
 const protocolLabels: Record<ProtocolFilter, string> = {
@@ -127,8 +135,10 @@ export function ProxyPanel({
   onTestAll?: () => void
   onTestSelected?: (ids: string[]) => void
 }): React.JSX.Element {
+  const csvInput = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<ProxyItem[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignTarget, setAssignTarget] = useState<ProxyItem | null>(null)
@@ -196,6 +206,17 @@ export function ProxyPanel({
     }
   }
 
+  const setProxyStatus = (ids: string[], status: NonNullable<ProxyItem['status']>): Promise<void> =>
+    act('status', async () => {
+      for (const id of ids) {
+        const result = await window.api.updateProxy(id, { status })
+        if (!result.ok) throw new Error(result.error)
+      }
+      await reload()
+      onChanged()
+      toast.success(`Đã cập nhật ${ids.length} proxy. Lượt kiểm tra đang thực hiện sẽ hoàn tất; các lượt mới dùng trạng thái mới.`)
+    })
+
   const testOne = (id: string): Promise<void> =>
     act(`test:${id}`, async () => {
       const r = await window.api.testSavedProxy(id)
@@ -209,6 +230,15 @@ export function ProxyPanel({
     onTestSelected?.(selectedIds)
   }
 
+  // Blacklist là danh sách riêng; không góp vào bảng và thống kê thông thường.
+  const scopedItems = useMemo(() => items.filter(p =>
+    statusFilter === 'blacklisted' ? p.status === 'blacklisted' : p.status !== 'blacklisted'
+  ), [items, statusFilter])
+
+  useEffect(() => {
+    setSelectedIds(prev => prev.filter(id => scopedItems.some(p => p.id === id)))
+  }, [scopedItems])
+
   // Thống kê đếm cho các bộ lọc
   const counts = useMemo(() => {
     let ok = 0
@@ -221,7 +251,7 @@ export function ProxyPanel({
     let unused = 0
     let dead10 = 0
 
-    for (const p of items) {
+    for (const p of scopedItems) {
       if (!p.lastTest) untested++
       else if (p.lastTest.ok) ok++
       else error++
@@ -237,15 +267,15 @@ export function ProxyPanel({
     }
 
     return { ok, error, untested, socks5, socks4, http, used, unused, dead10 }
-  }, [items, rows, stats])
+  }, [scopedItems, rows, stats])
 
   /** Proxy 10 lần test gần nhất đều chết (để xoá hàng loạt) */
-  const deadList = useMemo(() => items.filter((p) => stats[p.id]?.dead10), [items, stats])
+  const deadList = useMemo(() => scopedItems.filter((p) => stats[p.id]?.dead10), [scopedItems, stats])
 
   // Lọc danh sách proxy
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return items.filter((p) => {
+    return scopedItems.filter((p) => {
       if (q) {
         const t = p.lastTest
         const matchLabel = p.label.toLowerCase().includes(q)
@@ -266,9 +296,10 @@ export function ProxyPanel({
         if (!p.lastTest || p.lastTest.ok) return false
       } else if (statusFilter === 'untested') {
         if (p.lastTest != null) return false
-      } else if (statusFilter === 'dead10') {
-        // 10 lan test gan nhat deu chet -> nen xoa
-        if (!stats[p.id]?.dead10) return false
+      } else if (statusFilter.startsWith('dead')) {
+        if ((stats[p.id]?.failStreak ?? 0) < Number(statusFilter.slice(4))) return false
+      } else if (['active', 'unused', 'blacklisted'].includes(statusFilter)) {
+        if ((p.status ?? 'active') !== statusFilter) return false
       }
 
       if (protocolFilter !== 'all') {
@@ -284,7 +315,7 @@ export function ProxyPanel({
 
       return true
     })
-  }, [items, search, statusFilter, protocolFilter, usageFilter, rows, stats])
+  }, [scopedItems, search, statusFilter, protocolFilter, usageFilter, rows, stats])
 
   // Sap xep: mac dinh theo thu tu them vao; ho tro sort theo do tre (reply delay)
   const sortedItems = useMemo(() => {
@@ -303,6 +334,9 @@ export function ProxyPanel({
     return arr
   }, [filteredItems, sortBy])
 
+  const selectedFilteredCount = useMemo(() => filteredItems.filter(p => selectedSet.has(p.id)).length, [filteredItems, selectedSet])
+  const virtual = useVirtualRows(sortedItems.length, JSON.stringify([search, statusFilter, protocolFilter, usageFilter, sortBy]))
+
   const hasActiveFilter =
     search.trim() !== '' || statusFilter !== 'all' || protocolFilter !== 'all' || usageFilter !== 'all'
 
@@ -316,7 +350,7 @@ export function ProxyPanel({
   // Chọn tất cả / bỏ chọn các proxy đang hiển thị
   const toggleSelectAll = (): void => {
     const visibleIds = sortedItems.map((p) => p.id)
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id))
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedSet.has(id))
     if (allVisibleSelected) {
       setSelectedIds((prev) => prev.filter((id) => !visibleIds.includes(id)))
     } else {
@@ -375,7 +409,7 @@ export function ProxyPanel({
   // Xoá nhiều proxy đã chọn
   const deleteSelected = (): void => {
     if (!selectedIds.length) return
-    const selectedItems = items.filter((p) => selectedIds.includes(p.id))
+    const selectedItems = items.filter((p) => selectedSet.has(p.id))
     const inUse = selectedItems.filter((p) => usersOf(p.id).length > 0)
     const free = selectedItems.filter((p) => usersOf(p.id).length === 0)
 
@@ -428,6 +462,17 @@ export function ProxyPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <input ref={csvInput} type="file" accept=".csv,text/csv" className="hidden" aria-label="Nhập CSV proxy" onChange={event => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) void act('importCsv', async () => {
+          const result = await window.api.importProxyCsv(await file.text())
+          if (!result.ok) throw new Error(result.error)
+          toast.success(`Đã nhập ${result.added} proxy; bỏ qua ${result.skipped} URL trùng. Giữ nguyên proxy đã có.`)
+          await reload()
+          onChanged()
+        })
+      }} />
       {/* Các nhóm luôn giữ nguyên vị trí khi chọn/bỏ chọn hoặc đang test. */}
       <div data-slot="proxy-toolbar" className="flex h-12 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-[var(--hairline-soft)] bg-[var(--canvas)] px-3 [&>button]:shrink-0">
         <DropdownMenu>
@@ -443,8 +488,12 @@ export function ProxyPanel({
             <DropdownMenuItem className="gap-2" onClick={() => setBulkOpen(true)}>
               <ClipboardPaste className="size-3.5" /> Dán hàng loạt
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => csvInput.current?.click()}>
+              <FileText className="size-3.5" /> Nhập CSV (cột url, ten, note, status)
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <ProxyAutoFillButton onChanged={() => { void reload(); onChanged() }} />
         <span className="mx-1 h-5 w-px shrink-0 bg-[var(--hairline)]" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -453,11 +502,11 @@ export function ProxyPanel({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[240px]">
-            <DropdownMenuItem className="gap-2" disabled={!selectedIds.length || !!testProgress} onClick={testSelected}>
-              <Wifi className="size-3.5" /> Kiểm tra đã chọn ({selectedIds.length})
+            <DropdownMenuItem className="gap-2" disabled={!proxyTestCandidates(items, selectedIds).length || !!testProgress} onClick={testSelected}>
+              <Wifi className="size-3.5" /> Kiểm tra đã chọn ({proxyTestCandidates(items, selectedIds).length})
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-2" disabled={!items.length || !!testProgress} onClick={() => onTestAll?.()}>
-              <Wifi className="size-3.5" /> Kiểm tra tất cả ({items.length})
+            <DropdownMenuItem className="gap-2" disabled={!proxyTestCandidates(items).length || !!testProgress} onClick={() => onTestAll?.()}>
+              <Wifi className="size-3.5" /> Kiểm tra tất cả ({proxyTestCandidates(items).length})
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -476,15 +525,15 @@ export function ProxyPanel({
           onClick={() =>
             void act('exportCsv', async () => {
               const head =
-                'ten,url,giao_thuc,lan_test,thanh_cong,that_bai,ti_le_thanh_cong,that_bai_lien_tiep,lan_test_cuoi,ket_qua_cuoi,ip,quoc_gia,ping_ms,loi_cuoi,tai_khoan_dang_dung'
+                'ten,url,giao_thuc,lan_test,thanh_cong,that_bai,ti_le_thanh_cong,that_bai_lien_tiep,lan_test_cuoi,ket_qua_cuoi,ip,quoc_gia,ping_ms,loi_cuoi,tai_khoan_dang_dung,note,status'
               const lines = items.map((p) => {
                 const s = stats[p.id]
                 const users = usersOf(p.id)
                   .map((u) => u.profile.name)
                   .join('; ')
                 return [
-                  `"${p.label.replace(/"/g, "'")}"`,
-                  p.url,
+                  `"${p.label.replace(/"/g, '""')}"`,
+                  `"${p.url.replace(/"/g, '""')}"`,
                   getProxyProtocol(p.url),
                   s?.total ?? 0,
                   s?.ok ?? 0,
@@ -497,7 +546,9 @@ export function ProxyPanel({
                   p.lastTest?.country ?? '',
                   p.lastTest?.latency ?? '',
                   `"${(p.lastTest?.error ?? '').replace(/"/g, "'")}"`,
-                  `"${users}"`
+                  `"${users}"`,
+                  `"${(p.note ?? '').replace(/"/g, '""')}"`,
+                  p.status ?? 'active'
                 ].join(',')
               })
               const csv = [head, ...lines].join('\n')
@@ -575,6 +626,11 @@ export function ProxyPanel({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[260px]">
+            {(['active', 'unused', 'blacklisted'] as const).map(status => (
+              <DropdownMenuItem key={status} disabled={!selectedIds.length || !!busy} onClick={() => void setProxyStatus(selectedIds, status)}>
+                {status === 'active' ? 'Bật lại' : status === 'unused' ? 'Đánh dấu không dùng' : 'Đưa vào blacklist'} đã chọn ({selectedIds.length})
+              </DropdownMenuItem>
+            ))}
             <DropdownMenuItem className="gap-2" disabled={selectedIds.length !== 1} onClick={() => {
               const proxy = items.find((p) => p.id === selectedIds[0])
               if (proxy) { setEditing(proxy); setDialogOpen(true) }
@@ -685,7 +741,7 @@ export function ProxyPanel({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[200px]">
-            <DropdownMenuItem onClick={() => setStatusFilter('all')}>Tất cả ({items.length})</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setStatusFilter('all')}>Tất cả ({items.filter(p => p.status !== 'blacklisted').length})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setStatusFilter('ok')} className="gap-1.5">
               <Badge variant="success" className="px-1 py-0 text-[10px]">
                 OK
@@ -701,10 +757,11 @@ export function ProxyPanel({
             <DropdownMenuItem onClick={() => setStatusFilter('untested')}>
               Chưa kiểm tra ({counts.untested})
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatusFilter('dead10')} className="gap-1.5 text-[var(--error)]">
-              <Trash2 className="size-3" />
-              Chết 10 lần liên tiếp ({counts.dead10})
-            </DropdownMenuItem>
+            {(['dead5', 'dead7', 'dead10', 'active', 'unused', 'blacklisted'] as StatusFilter[]).map(filter => (
+              <DropdownMenuItem key={filter} onClick={() => setStatusFilter(filter)}>
+                {statusLabels[filter]} ({(filter === 'blacklisted' ? items : items.filter(p => p.status !== 'blacklisted')).filter(p => filter.startsWith('dead') ? (stats[p.id]?.failStreak ?? 0) >= Number(filter.slice(4)) : (p.status ?? 'active') === filter).length})
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -720,7 +777,7 @@ export function ProxyPanel({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[176px]">
             <DropdownMenuItem onClick={() => setProtocolFilter('all')}>
-              Tất cả giao thức ({items.length})
+              Tất cả giao thức ({scopedItems.length})
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setProtocolFilter('socks5')}>SOCKS5 ({counts.socks5})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setProtocolFilter('socks4')}>SOCKS4 ({counts.socks4})</DropdownMenuItem>
@@ -739,7 +796,7 @@ export function ProxyPanel({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-[176px]">
-            <DropdownMenuItem onClick={() => setUsageFilter('all')}>Tất cả ({items.length})</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setUsageFilter('all')}>Tất cả ({scopedItems.length})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setUsageFilter('used')}>Đang dùng ({counts.used})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setUsageFilter('unused')}>Chưa gắn ({counts.unused})</DropdownMenuItem>
           </DropdownMenuContent>
@@ -753,10 +810,10 @@ export function ProxyPanel({
         <span className="ml-auto text-[12.5px] text-[var(--stone)]">
           {hasActiveFilter ? (
             <>
-              Đang hiện <strong>{filteredItems.length}</strong>/{items.length} proxy
+              Đang hiện <strong>{filteredItems.length}</strong>/{scopedItems.length} proxy
             </>
           ) : (
-            <>{items.length} proxy</>
+            <>{scopedItems.length} proxy</>
           )}
         </span>
       </div>
@@ -765,7 +822,7 @@ export function ProxyPanel({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
         {/* Table tu tao vung cuon (overflow-auto) — khong boc them div overflow nua,
             neu khong thead sticky se khong dinh */}
-        <Table className="min-w-[1120px] table-fixed">
+        <Table viewportRef={virtual.viewportRef} aria-rowcount={sortedItems.length + 1} className="min-w-[1120px] table-fixed">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: '18%' }} />
@@ -780,9 +837,9 @@ export function ProxyPanel({
                 <TableHead className="px-2 text-center">
                   <Checkbox
                     checked={
-                      filteredItems.length > 0 && filteredItems.every((p) => selectedIds.includes(p.id))
+                      filteredItems.length > 0 && selectedFilteredCount === filteredItems.length
                         ? true
-                        : filteredItems.some((p) => selectedIds.includes(p.id))
+                        : selectedFilteredCount > 0
                           ? 'indeterminate'
                           : false
                     }
@@ -817,14 +874,18 @@ export function ProxyPanel({
                   </TableCell>
                 </TableRow>
               ) : (
-                sortedItems.map((p) => {
+                <>
+                {virtual.paddingTop > 0 && <tr aria-hidden="true"><td colSpan={7} style={{ height: virtual.paddingTop, padding: 0, border: 0 }} /></tr>}
+                {sortedItems.slice(virtual.start, virtual.end).map((p, index) => {
                   const users = usersOf(p.id)
                   const t = p.lastTest
-                  const selected = selectedIds.includes(p.id)
+                  const selected = selectedSet.has(p.id)
                   return (
                     <ContextMenu key={p.id}>
                       <ContextMenuTrigger asChild>
                         <TableRow
+                          data-proxy-id={p.id}
+                          aria-rowindex={virtual.start + index + 2}
                           data-state={selected ? 'selected' : undefined}
                           className="h-14 cursor-pointer [&>td]:h-14 [&>td]:overflow-hidden [&>td]:py-1"
                           onClick={() => toggleSelectOne(p.id)}
@@ -837,8 +898,11 @@ export function ProxyPanel({
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="truncate font-medium">{p.label}</div>
-                        {p.note ? <div className="mm-micro truncate">{p.note}</div> : null}
+                        <div className="flex h-11 min-w-0 flex-col justify-center overflow-hidden">
+                          <div className="flex min-w-0 items-center gap-1"><span className="truncate font-medium">{p.label}</span>
+                          {p.status && p.status !== 'active' ? <Badge variant="secondary" className="h-5 shrink-0">{p.status === 'blacklisted' ? 'Blacklist' : 'Không dùng'}</Badge> : null}</div>
+                          {p.note ? <div className="mm-micro truncate" title={p.note}>{p.note}</div> : null}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <code className="block truncate text-[11.5px] text-[var(--steel)]" title={p.url}>{p.url}</code>
@@ -936,7 +1000,12 @@ export function ProxyPanel({
                           {p.label}
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress} onClick={() => void testOne(p.id)}>
+                        {(['active', 'unused', 'blacklisted'] as const).map(status => (
+                          <DropdownMenuItem key={status} disabled={(p.status ?? 'active') === status || !!busy} onClick={() => void setProxyStatus([p.id], status)}>
+                            {status === 'active' ? 'Bật lại' : status === 'unused' ? 'Không dùng (bỏ qua kiểm tra)' : 'Đưa vào blacklist'}
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress || (!!p.status && p.status !== 'active')} onClick={() => void testOne(p.id)}>
                           <Wifi className="size-3.5" /> Kiểm tra proxy này
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -960,6 +1029,7 @@ export function ProxyPanel({
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           className="gap-2"
+                          disabled={!!p.status && p.status !== 'active'}
                           onClick={() => {
                             setAssignTarget(p)
                             setAssignOpen(true)
@@ -985,7 +1055,12 @@ export function ProxyPanel({
                           {p.label}
                         </ContextMenuLabel>
                         <ContextMenuSeparator />
-                        <ContextMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress} onClick={() => void testOne(p.id)}>
+                        {(['active', 'unused', 'blacklisted'] as const).map(status => (
+                          <ContextMenuItem key={status} disabled={(p.status ?? 'active') === status || !!busy} onClick={() => void setProxyStatus([p.id], status)}>
+                            {status === 'active' ? 'Bật lại' : status === 'unused' ? 'Không dùng (bỏ qua kiểm tra)' : 'Đưa vào blacklist'}
+                          </ContextMenuItem>
+                        ))}
+                        <ContextMenuItem className="gap-2" disabled={busy === `test:${p.id}` || !!testProgress || (!!p.status && p.status !== 'active')} onClick={() => void testOne(p.id)}>
                           <Wifi className="size-3.5" /> Kiểm tra proxy này
                         </ContextMenuItem>
                         <ContextMenuItem
@@ -1009,6 +1084,7 @@ export function ProxyPanel({
                         <ContextMenuSeparator />
                         <ContextMenuItem
                           className="gap-2"
+                          disabled={!!p.status && p.status !== 'active'}
                           onClick={() => {
                             setAssignTarget(p)
                             setAssignOpen(true)
@@ -1026,7 +1102,9 @@ export function ProxyPanel({
                       </ContextMenuContent>
                     </ContextMenu>
                   )
-                })
+                })}
+                {virtual.paddingBottom > 0 && <tr aria-hidden="true"><td colSpan={7} style={{ height: virtual.paddingBottom, padding: 0, border: 0 }} /></tr>}
+                </>
               )}
             </TableBody>
           </Table>
@@ -1035,7 +1113,7 @@ export function ProxyPanel({
       {/* Dòng trạng thái đáy bảng */}
       <div className="mm-tabular flex h-9 shrink-0 items-center justify-between gap-4 overflow-hidden whitespace-nowrap border-t border-[var(--hairline-soft)] bg-[var(--surface)] px-3 py-1.5 text-[12px] text-[var(--steel)]">
         <span>
-          {filteredItems.length} proxy{hasActiveFilter ? ` (đã lọc từ ${items.length})` : ''} ·{' '}
+          {filteredItems.length} proxy{hasActiveFilter ? ` (đã lọc từ ${scopedItems.length})` : ''} ·{' '}
           {counts.ok} hoạt động · {counts.error} lỗi · {counts.untested} chưa test
           {sortBy !== 'default' ? ` · sắp xếp: ${sortLabels[sortBy].split(' (')[0]}` : ''}
         </span>

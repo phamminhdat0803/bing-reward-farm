@@ -7,7 +7,7 @@ import { build } from 'esbuild'
 
 const modules = {
   './policy-service': 'export const getPolicy=()=>globalThis.policyHarness.config;export const policyPlan=()=>globalThis.policyHarness.plan;export const pausePolicy=()=>{globalThis.policyHarness.paused++}',
-  './runner': 'export const runState=()=>globalThis.policyHarness.busy;export const startRun=async(p)=>{globalThis.policyHarness.started.push(structuredClone(p));globalThis.policyHarness.plan={...globalThis.policyHarness.plan,tasks:[],reason:"Đạt mục tiêu"};return {ok:true}}',
+  './runner': 'export const runState=()=>globalThis.policyHarness.busy;export const startRun=async(p)=>{if(globalThis.policyHarness.startHook)return globalThis.policyHarness.startHook(p);globalThis.policyHarness.started.push(structuredClone(p));globalThis.policyHarness.plan={...globalThis.policyHarness.plan,tasks:[],reason:"Đạt mục tiêu"};return {ok:true}}',
   './cache': 'export const get=()=>globalThis.policyHarness.cache',
   './profiles': 'export const loadStore=()=>({profiles:globalThis.policyHarness.profiles});export const updateProfile=(id,patch)=>{const p=globalThis.policyHarness.profiles.find(p=>p.id===id);Object.assign(p,patch);return p}',
   './proxies': 'export const listProxies=()=>globalThis.policyHarness.proxies;export const resolveProxyChain=p=>p.proxyId?[p.proxyId]:[];export const preflightChain=async chain=>({live:chain[0]==="dead"?[]:chain,dead:[]});export const testAll=async()=>({})',
@@ -60,4 +60,39 @@ test('chu kỳ không hợp lệ bị chặn; dừng lịch lưu trạng thái t
   auto.stopAutoNow()
   assert.equal(h.settings.autoEveryMs, 0)
   assert.equal(auto.autoStatus().nextAt, null)
+}))
+
+
+test('lịch tuần tự hoặc song song theo lựa chọn, bị chặn bởi giới hạn tổng', async () => {
+  for (const [configured, cap, expected] of [[1,0,1],[3,0,3],[5,2,2]]) {
+    await isolated(async (auto,h) => {
+      h.settings.autoParallelRuns=configured;h.settings.maxParallelRuns=cap
+      h.profiles=Array.from({length:6},(_,i)=>({id:`test-${i}`,name:`Test ${i}`}))
+      let active=0,max=0
+      h.startHook=async profile => {
+        h.started.push(profile.id);active++;max=Math.max(max,active)
+        await new Promise(resolve=>setTimeout(resolve,10));active--
+        return {ok:true}
+      }
+      await auto.runAutoCycle('parallel test')
+      assert.equal(max,expected);assert.equal(active,0)
+      assert.equal(new Set(h.started).size,6)
+    })
+  }
+})
+
+test('dừng lịch không điều phối tài khoản mới; lỗi một tài khoản không kết thúc sớm các worker khác', () => isolated(async(auto,h)=>{
+  h.settings.autoParallelRuns=2
+  h.profiles=Array.from({length:5},(_,i)=>({id:`test-${i}`,name:`Test ${i}`}))
+  let active=0
+  h.startHook=async profile=>{
+    h.started.push(profile.id);active++
+    await new Promise(resolve=>setTimeout(resolve,10))
+    active--
+    if(profile.id==='test-0'){auto.stopAutoNow();throw Error('fixture profile error')}
+    return {ok:true}
+  }
+  const result=await auto.runAutoCycle('stop test')
+  assert.equal(h.started.length,2);assert.equal(active,0)
+  assert.ok(result.detail.some(text=>text.includes('fixture profile error')))
 }))

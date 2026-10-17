@@ -1,3 +1,4 @@
+import { RunHelpButton } from './RunHelp'
 import { useEffect, useId, useState } from 'react'
 import { CalendarClock, Check, Clock3, Gauge, Loader2, Save, Search, ShieldCheck, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
@@ -201,7 +202,7 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
             <td className="px-3 py-3"><div className="truncate font-semibold" title={plan.name}>{plan.name}</div><div className="mm-micro mt-1">{Object.hasOwn(config.overrides, plan.profileId) ? 'Cấu hình riêng' : 'Mặc định chung'}</div></td>
             <td className="mm-tabular px-3 py-3">{plan.active ? <><strong>{plan.effectivePercent}%</strong><div className="mm-micro mt-1">PC {plan.desktopTarget}đ · Mobile {plan.mobileTarget}đ</div></> : 'Theo cài đặt hiện tại'}</td>
             <td className="mm-tabular px-3 py-3">{plan.usage.searches} lượt · {plan.usage.sessions} phiên<div className="mm-micro mt-1">Còn {plan.remainingToday} lượt ngân sách</div></td>
-            <td className="px-3 py-3"><Badge variant={plan.status === 'ready' ? 'success' : plan.status === 'paused' ? 'warning' : 'secondary'}>{statusNames[plan.status]}</Badge><p className="mt-1.5 break-words leading-relaxed text-[var(--steel)]">{plan.reason}</p>{plan.tasks.length ? <div className="mm-micro mt-1">{plan.tasks.join(' · ')}</div> : null}{plan.usage.blockedUntil || plan.usage.failures ? <Button size="sm" variant="tertiary" className="mt-2 h-6 text-[11px]" onClick={() => { void window.api.resumeAutomationPolicy(plan.profileId).then(() => window.api.previewAutomationPolicy(config)).then(setPlans).then(() => toast.info('Đã gỡ chờ lỗi; giữ nguyên số lượt và số phiên đã dùng.')).catch(e => toast.error(String(e.message))) }}>Đã kiểm tra, gỡ chờ lỗi</Button> : null}</td>
+            <td className="px-3 py-3"><Badge variant={plan.status === 'ready' ? 'success' : plan.status === 'paused' ? 'warning' : 'secondary'}>{statusNames[plan.status]}</Badge><p className="mt-1.5 break-words leading-relaxed text-[var(--steel)]">{plan.reason}</p><div className="mt-1.5"><RunHelpButton message={plan.reason} profileName={plan.name} /></div>{plan.tasks.length ? <div className="mm-micro mt-1">{plan.tasks.join(' · ')}</div> : null}{plan.usage.blockedUntil || plan.usage.failures ? <Button size="sm" variant="tertiary" className="mt-2 h-6 text-[11px]" onClick={() => { void window.api.resumeAutomationPolicy(plan.profileId).then(() => window.api.previewAutomationPolicy(config)).then(setPlans).then(() => toast.info('Đã gỡ chờ lỗi; giữ nguyên số lượt và số phiên đã dùng.')).catch(e => toast.error(String(e.message))) }}>Đã kiểm tra, gỡ chờ lỗi</Button> : null}</td>
           </tr>)}</tbody></table>
         </section>
       </div>

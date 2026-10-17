@@ -1,3 +1,5 @@
+import { reserveKeyword, releaseKeyword, markKeywordUsed, usedKeywordKeys } from './keyword-usage'
+import { getKeywords } from './keywords'
 // Runner: doc trang thai (snapshot) va chay automation cho tung profile.
 // Log stream qua onLine; snapshot phat qua onSnapshot.
 import path from 'node:path'
@@ -587,8 +589,9 @@ async function startRunNow(
       if (policy.active) {
         cfg.search.checkPointsEvery = Math.max(1, Math.min(cfg.search.checkPointsEvery, policy.allowance || 1))
       }
-      const pool = buildPool(cfg.queries.file)
-      const nextQuery = makeQueryPicker(pool, usedQuerySet(rec))
+      const library = getKeywords()
+      const pool = library.keywords.length ? library.keywords : buildPool(cfg.queries.file)
+      const nextQuery = makeQueryPicker(pool, new Set([...usedQuerySet(rec), ...usedKeywordKeys()]))
       const shouldStop = (): boolean => job.cancelled || policyHalted
       const summary: Record<string, unknown> = {}
 
@@ -694,9 +697,27 @@ async function startRunNow(
                 kind: 'desktop',
                 target: desktopTarget,
                 beforeSearch: policy.active ? () => reservePolicySearch(profile, policyCursor, 'desktop') : undefined,
-                onRestriction: policy.active ? () => { policyHalted = true; pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn') } : undefined,
+                reserveQuery: q => reserveKeyword(q, profile, 'desktop'),
+                releaseQuery: q => releaseKeyword(q, profile.id),
+                onRestriction: () => {
+                  // LUON bat (khong phu thuoc bo quy tac): gap xac minh thi dung va bao ro cho nguoi dung
+                  if (policy.active) {
+                    policyHalted = true
+                    pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn')
+                  }
+                  log.error(
+                    '[canh bao] Bing yêu cầu XÁC MINH/CAPTCHA — đã DỪNG tài khoản này, không gửi thêm search. ' +
+                      'Mở trình duyệt của tài khoản để xử lý thủ công (tick "không phải robot"), rồi chạy lại.'
+                  )
+                  hooks.onLine?.({
+                    at: new Date().toISOString(),
+                    level: 'error',
+                    msg: '[cần xử lý] Bing yêu cầu xác minh — đã dừng để bạn kiểm tra thủ công',
+                    profileId: profile.id
+                  })
+                },
                 nextQuery,
-                rememberQuery: (q) => { rememberQuery(rec, q); if (policy.active) saveState(stateFile(profile), st) },
+                rememberQuery: (q) => { markKeywordUsed(q, profile.id); rememberQuery(rec, q); saveState(stateFile(profile), st) },
                 shouldStop,
                 onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id })
               })
@@ -821,9 +842,26 @@ async function startRunNow(
             kind: 'mobile',
             target: mobileTarget,
             beforeSearch: policy.active ? () => reservePolicySearch(profile, policyCursor, 'mobile') : undefined,
-            onRestriction: policy.active ? () => { policyHalted = true; pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn') } : undefined,
+                reserveQuery: q => reserveKeyword(q, profile, 'mobile'),
+                releaseQuery: q => releaseKeyword(q, profile.id),
+            onRestriction: () => {
+              // LUON bat (khong phu thuoc bo quy tac) — xem ghi chu o nhanh desktop
+              if (policy.active) {
+                policyHalted = true
+                pausePolicy(profile, 'Trang tìm kiếm yêu cầu xác minh hoặc thông báo giới hạn')
+              }
+              log2.error(
+                '[canh bao] Bing yêu cầu XÁC MINH/CAPTCHA (mobile) — đã DỪNG, cần xử lý thủ công trong trình duyệt.'
+              )
+              hooks.onLine?.({
+                at: new Date().toISOString(),
+                level: 'error',
+                msg: '[cần xử lý] Bing yêu cầu xác minh (mobile) — đã dừng để bạn kiểm tra thủ công',
+                profileId: profile.id
+              })
+            },
             nextQuery,
-            rememberQuery: (q) => { rememberQuery(rec, q); if (policy.active) saveState(stateFile(profile), st) },
+            rememberQuery: (q) => { markKeywordUsed(q, profile.id); rememberQuery(rec, q); saveState(stateFile(profile), st) },
             shouldStop,
             onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id }),
             preparePage: kind === 'cdp' ? (p) => newDeviceSession(p).then(() => undefined) : undefined

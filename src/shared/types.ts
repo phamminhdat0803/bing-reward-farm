@@ -87,6 +87,7 @@ export type Progress = { progress: number; max: number } | null
 
 /** 1 proxy trong kho dung chung (tab "Proxy"). */
 export type ProxyItem = {
+  status?: 'active' | 'unused' | 'blacklisted'
   id: string
   label: string
   url: string
@@ -168,6 +169,8 @@ export type AppSettings = {
   refreshParallel?: number
   /** Chu kỳ chế độ tự động (ms): 0 = tắt, 60000 = mỗi phút, 3600000 = mỗi giờ, 10800000 = mỗi 3 giờ */
   autoEveryMs?: number
+  /** 1 = tuần tự; 2–10 = số tài khoản điều phối song song trong lịch tự động. */
+  autoParallelRuns?: number
 }
 
 export type RefreshProgress = { done: number; total: number; profileId: string; parallel?: number }

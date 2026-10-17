@@ -173,6 +173,46 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
+## Kịch bản search: luôn phát hiện XÁC MINH, dừng ngay, không fallback (2026-10-17)
+
+Góp ý (từ review ngoài) đúng ở 2 điểm, đã sửa:
+
+1. **Kiểm tra xác minh chỉ chạy khi bộ quy tắc bật** và **chỉ kiểm TRƯỚC mỗi lượt** ⇒ CAPTCHA hiện ngay sau `Enter`
+   bị coi là “không thấy kết quả”, rồi rơi vào nhánh **fallback URL** (`page.goto('/search?q=…')`) ⇒ vẫn gửi tiếp request.
+   - `src/main/core/search.ts`: thêm `looksLikeRestriction()` (hàm thuần, test được) + `detectRestriction(page)`.
+     Soi **host + path** (KHÔNG soi query — nếu không, từ khoá “captcha là gì” bị coi là trang xác minh), marker DOM
+     (`#b_captcha, .captcha, iframe[src*=captcha|challenge], #enforcement, [data-testid*=captcha]`) và text
+     (`unusual traffic`, `verify you are human`, `temporarily restricted`, `xác minh bạn là con người`…).
+   - `doSearch()`: sau `Enter` chờ 0,7–1,6 s rồi **kiểm ngay**; nếu có xác minh ⇒ trả `'restricted'`.
+     Trong nhánh `catch` (timeout không thấy kết quả) cũng **kiểm trước khi goto URL**; nếu bị chặn ⇒ `'restricted'`, **không fallback**.
+   - `runSearchPass()`: kiểm xác minh **LUÔN** (bỏ điều kiện `if (args.beforeSearch)`); `how === 'restricted'` ⇒ `status='restricted'`,
+     gọi `onRestriction`, **dừng lượt ngay**, log rõ: *“Bing yêu cầu XÁC MINH — DỪNG NGAY, không gửi thêm search. Kiểm tra thủ công…”*.
+   - `runner.ts`: `onRestriction` **luôn được gắn** (trước đây `policy.active ? … : undefined`) — vẫn pause policy nếu policy bật,
+     và luôn ghi log + đẩy dòng `[cần xử lý]` lên khung Log.
+   - `auto.ts`: khi log run có `XÁC MINH|CAPTCHA` ⇒ **không tính là lỗi task**, ghi `state.restricted[profileId]` và
+     **tạm bỏ qua acc đó** ở các vòng sau (tránh hammer trang xác minh); tự gỡ cờ khi có lượt chạy sạch trở lại.
+
+2. **Bớt “máy móc” (phần đã làm ngay, rủi ro thấp)**
+   - **Không luôn bấm kết quả đầu tiên**: chọn trong 1–5 kết quả tự nhiên đầu (`#b_results > li.b_algo`), **bỏ quảng cáo**
+     (`.b_ad`, `.b_adProviderText`) và link nội bộ Bing; trọng số lệch về đầu `[3,2,2,1,1]`.
+   - **Đọc điểm lệch nhịp**: thay `searches % checkPointsEvery === 0` bằng mốc ngẫu nhiên ±40% quanh giá trị cấu hình.
+   - Ở lại lâu hơn khi đã bấm vào kết quả (6–22 s) + cuộn nhẹ trước khi quay lại (trước đây 1,5–3 s).
+
+**Kiểm chứng**: hook `BRF_RESTRICT_TEST=1` chạy 8 ca (URL `/challenge`, marker `#b_captcha`, text EN/VI, “temporarily restricted”
+⇒ phải `true`; SERP thường và bài viết có chữ “captcha” ⇒ phải `false`) → **8/8 đạt** (lần đầu 7/8 vì soi cả query string, đã sửa).
+
+### Đề xuất tiếp cho kịch bản (chưa làm — chờ chọn)
+- **Nối mạch truy vấn**: lấy “related searches”/“People also ask” từ SERP trước làm query kế tiếp (~40–50%), giữ một mạch chủ đề
+  mỗi phiên rồi mới đổi chủ đề; chống trùng query giữa các acc trong cùng ngày.
+- **Trộn hành động mỗi lượt** (thay vì luôn type→Enter→cuộn→nghỉ): quét-không-bấm / bấm-đọc / tinh chỉnh query / mở tab mới rồi quay lại /
+  thỉnh thoảng xem tab Ảnh–Tin tức; đổi điểm vào (từ trang chủ, từ box trên trang kết quả).
+- **Bớt vòng Rewards**: có phiên không đọc điểm giữa chừng, đọc ở cuối phiên.
+- **Kỷ luật phiên**: ≤6 search/phút, nghỉ dài sau khi gặp xác minh (6–24 h), đổi proxy khi bị chặn, không bao giờ fallback DIRECT khi có chain.
+- **Bám IP/phiên quan trọng hơn micro-timing**: mỗi acc một IP ổn định, profile “ấm” (cookie/lịch sử thật), locale/timezone khớp, không chạy
+  nhiều acc cùng lúc qua cùng một proxy.
+- **Đo bằng chỉ số thật thay vì “% giống người”**: số lần gặp xác minh/ngày, tỉ lệ `check-failed`, tỉ lệ stall, điểm/ngày so với trần, độ churn proxy.
+- **Không tích hợp dịch vụ giải CAPTCHA** — đúng như review: không có trong `src` và `package.json`, và không nên thêm.
+
 ## Bug "Mặc định chung" + acc "Đạt Phạm" cùng tick ở tab Cài đặt (2026-10-17)
 
 Triệu chứng: trong tab **Cài đặt** (`SettingsPanel`, dropdown “Đang chỉnh cho”), mục **Mặc định chung** và tài khoản

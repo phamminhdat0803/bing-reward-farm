@@ -15,6 +15,7 @@ import {
   Clock,
   Loader2,
   MonitorCog,
+  PanelRightOpen,
   UserRound
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
@@ -42,6 +43,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fmtNum, pct, timeAgo } from '@renderer/lib/utils'
 import { RewardMetric } from './RewardsSummary'
 import { BotScoreBadge } from './BotScore'
+import type { AccountSelectionIntent } from '@renderer/lib/account-selection'
 
 type Props = {
   rows: RowState[]
@@ -49,7 +51,7 @@ type Props = {
   activeId: string | null
   busy: string | null
   refreshingId?: string | null
-  onToggle: (id: string) => void
+  onSelect: (id: string, intent?: AccountSelectionIntent) => void
   onToggleAll: () => void
   onOpenDetail: (id: string) => void
   onOpenBrowser: (id: string) => void
@@ -64,9 +66,6 @@ type Props = {
   onEdit?: (id: string) => void
   onRemove?: (id: string) => void
   onSignOut?: (id: string) => void
-  /** Menu chuột phải cho nhiều tài khoản đang chọn */
-  onBulkRemove?: () => void
-  onBulkRefresh?: () => void
 }
 
 function MiniBar({
@@ -204,9 +203,13 @@ function cleanProxyDisplay(p: string): string {
   }
 }
 
-/** Bảng quản lý tài khoản full-width; chi tiết mở ở drawer khi bấm vào dòng. */
+/** Row click selects; name/double-click opens details. Context actions always target their row. */
 export function AccountsTable(p: Props): React.JSX.Element {
-  const allChecked = p.rows.length > 0 && p.selectedIds.length === p.rows.length
+  const selected = new Set(p.selectedIds)
+  const visibleChecked = p.rows.filter(row => selected.has(row.id)).length
+  const allChecked = p.rows.length > 0 && visibleChecked === p.rows.length
+  const isInteractive = (target: EventTarget | null): boolean =>
+    target instanceof Element && !!target.closest('button, a, input, [role="checkbox"], [role="menuitem"]')
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--canvas)]">
@@ -225,7 +228,7 @@ export function AccountsTable(p: Props): React.JSX.Element {
         <TableHeader>
           <TableRow className="hover:bg-[var(--surface)]">
             <TableHead>
-              <Checkbox checked={allChecked} onCheckedChange={p.onToggleAll} aria-label="Chọn tất cả" />
+              <Checkbox checked={allChecked ? true : visibleChecked > 0 ? 'indeterminate' : false} onCheckedChange={p.onToggleAll} disabled={!p.rows.length} aria-label="Chọn tất cả tài khoản đang hiển thị" />
             </TableHead>
             <TableHead>Tài khoản</TableHead>
             <TableHead className="text-right">Điểm</TableHead>
@@ -260,25 +263,33 @@ export function AccountsTable(p: Props): React.JSX.Element {
                 ((c?.runs.desktop as { searches?: number } | null)?.searches ?? 0) +
                 ((c?.runs.mobile as { searches?: number } | null)?.searches ?? 0)
               const active = row.id === p.activeId
-              const multi = p.selectedIds.length > 1 && p.selectedIds.includes(row.id)
               return (
-                <ContextMenu
-                  key={row.id}
-                  onOpenChange={(o) => {
-                    // chuột phải vào dòng chưa chọn thì chọn luôn dòng đó
-                    if (o && !p.selectedIds.includes(row.id)) p.onToggle(row.id)
-                  }}
-                >
+                <ContextMenu key={row.id}>
                   <ContextMenuTrigger asChild>
                     <TableRow
-                      data-state={p.selectedIds.includes(row.id) ? 'selected' : undefined}
-                      className={active ? 'bg-[var(--surface)]' : undefined}
-                      onClick={() => p.onOpenDetail(row.id)}
+                      data-account-id={row.id}
+                      data-detail-open={active || undefined}
+                      data-state={selected.has(row.id) ? 'selected' : undefined}
+                      aria-selected={selected.has(row.id)}
+                      tabIndex={0}
+                      className={'group cursor-default outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-blue-deep)] ' + (active ? '[&>td:first-child]:shadow-[inset_2px_0_0_var(--brand-blue-deep)]' : '')}
+                      onClick={(event) => {
+                        if (isInteractive(event.target) || window.getSelection()?.toString()) return
+                        p.onSelect(row.id, { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey })
+                      }}
+                      onDoubleClick={(event) => {
+                        if (!isInteractive(event.target)) p.onOpenDetail(row.id)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.key === 'Enter') { event.preventDefault(); p.onOpenDetail(row.id) }
+                        if (event.key === ' ') { event.preventDefault(); p.onSelect(row.id, { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey }) }
+                      }}
                     >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
-                      checked={p.selectedIds.includes(row.id)}
-                      onCheckedChange={() => p.onToggle(row.id)}
+                      checked={selected.has(row.id)}
+                      onClick={(event) => p.onSelect(row.id, { toggle: true, range: event.shiftKey })}
                       aria-label={`Chọn ${row.profile.name}`}
                     />
                   </TableCell>
@@ -288,9 +299,20 @@ export function AccountsTable(p: Props): React.JSX.Element {
                         <UserRound className="size-4" />
                       </div>
                       <div className="min-w-0 flex-1 space-y-1">
-                      <span className="block truncate font-medium text-[13.5px] leading-tight" title={row.profile.name}>
-                        {row.profile.name}
-                      </span>
+                      <button
+                        type="button"
+                        data-slot="account-detail-trigger"
+                        aria-label={`Xem chi tiết ${row.profile.name}`}
+                        aria-haspopup="dialog"
+                        aria-expanded={active}
+                        title="Xem chi tiết tài khoản"
+                        className="flex max-w-full items-center gap-1.5 rounded-sm text-left font-medium text-[13.5px] leading-tight outline-none hover:underline focus-visible:ring-2 focus-visible:ring-[var(--brand-blue-deep)]"
+                        onClick={(event) => { event.stopPropagation(); p.onOpenDetail(row.id) }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                      >
+                        <span className="truncate">{row.profile.name}</span>
+                        <PanelRightOpen className="size-3.5 shrink-0 text-[var(--stone)]" />
+                      </button>
                     <div className="mm-micro truncate" title={row.profile.account || row.profile.id}>
                       {row.profile.account || row.profile.id}
                     </div>
@@ -455,11 +477,11 @@ export function AccountsTable(p: Props): React.JSX.Element {
 
                   <ContextMenuContent className="min-w-[250px]">
                     <ContextMenuLabel className="text-[12px] font-semibold text-[var(--steel)]">
-                      {multi ? `${p.selectedIds.length} tài khoản đang chọn` : row.profile.name}
+                      {row.profile.name}
                     </ContextMenuLabel>
                     <ContextMenuSeparator />
                     <ContextMenuItem className="gap-2" onClick={() => p.onOpenDetail(row.id)}>
-                      <Check className="size-3.5" /> Xem chi tiết
+                      <PanelRightOpen className="size-3.5" /> Xem chi tiết
                     </ContextMenuItem>
                     {p.onEdit ? (
                       <ContextMenuItem className="gap-2" onClick={() => p.onEdit?.(row.id)}>
@@ -488,10 +510,10 @@ export function AccountsTable(p: Props): React.JSX.Element {
                       <>
                         <ContextMenuItem
                           className="gap-2"
-                          onClick={() => (multi && p.onRun ? p.onRun(row.id, ['__all__']) : p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile']))}
+                          onClick={() => p.onRun(row.id, ['desktop', 'daily', 'earn', 'mobile'])}
                         >
                           <Play className="size-3.5" />
-                          {multi ? `Chạy ${p.selectedIds.length} tài khoản (full)` : 'Chạy tất cả (full)'}
+                          Chạy tài khoản này (full)
                         </ContextMenuItem>
                         <ContextMenuItem className="gap-2" onClick={() => p.onRun(row.id, ['desktop'])}>
                           <Download className="size-3.5" /> Chỉ Search desktop
@@ -520,13 +542,15 @@ export function AccountsTable(p: Props): React.JSX.Element {
                         <ContextMenuSeparator />
                         <ContextMenuItem
                           className="gap-2 text-[var(--error)]"
-                          onClick={() => (multi && p.onBulkRemove ? p.onBulkRemove() : p.onRemove?.(row.id))}
+                          onClick={() => p.onRemove?.(row.id)}
                         >
                           <Trash2 className="size-3.5" />
-                          {multi ? `Xoá ${p.selectedIds.length} tài khoản khỏi danh sách` : 'Xoá khỏi danh sách'}
+                          Xoá tài khoản này khỏi danh sách
                         </ContextMenuItem>
                       </>
                     ) : null}
+                    <ContextMenuSeparator />
+                    <ContextMenuLabel className="text-[11px] font-normal text-[var(--stone)]">Menu chỉ áp dụng cho tài khoản này</ContextMenuLabel>
                   </ContextMenuContent>
                 </ContextMenu>
               )

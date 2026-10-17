@@ -1,3 +1,7 @@
+import { looksLikeRestriction } from './core/search'
+import { startProxyFill, proxyFillState } from './proxy-auto-fill'
+import { getKeywordAiConfig, saveKeywordAiConfig, testKeywordAi, getKeywordAiJob, startKeywordAi, stopKeywordAi } from './keyword-ai'
+import { getKeywords, saveKeywords } from './keywords'
 import { proxyStats, clearProxyHistory } from './proxy-history'
 import { buildAccountsLog } from './export-log'
 import { join } from 'node:path'
@@ -49,7 +53,7 @@ import {
   switchToAccount
 } from './phone'
 import { testProxy } from './proxy-test'
-import { addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
+import { importProxyCsv, addProxy, addProxyBulk, cancelTestAll, getHealthById, listProxies, removeProxy, removeProxies, setHealthNotifier, startHealthLoop, testAll, testAndSave, updateProxy } from './proxies'
 import { getSettings, setSettings } from './settings'
 import { getPolicy, previewPolicy, resumePolicy, savePolicy } from './policy-service'
 import type { LogLine } from './core/types'
@@ -501,6 +505,30 @@ if (process.env.BRF_TEST_ALL) {
           }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_RESTRICT_TEST=1 -> tu kiem bo nhan dien XAC MINH/CAPTCHA (khong can trinh duyet)
+  if (process.env.BRF_RESTRICT_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      const cases: { name: string; input: { url: string; text: string; hasMarkup: boolean }; expect: boolean }[] = [
+        { name: 'URL /challenge', input: { url: 'https://www.bing.com/challenge/verify', text: '', hasMarkup: false }, expect: true },
+        { name: 'marker #b_captcha', input: { url: 'https://www.bing.com/search?q=x', text: 'Kết quả tìm kiếm', hasMarkup: true }, expect: true },
+        { name: 'text "Verify you are human"', input: { url: 'https://www.bing.com/search?q=x', text: 'Please verify you are human to continue', hasMarkup: false }, expect: true },
+        { name: 'text "unusual traffic"', input: { url: 'https://www.bing.com/search?q=x', text: 'Our systems have detected unusual traffic from your computer', hasMarkup: false }, expect: true },
+        { name: 'text tiếng Việt "xác minh bạn là con người"', input: { url: 'https://www.bing.com/search?q=x', text: 'Vui lòng xác minh bạn là con người', hasMarkup: false }, expect: true },
+        { name: 'text "temporarily restricted"', input: { url: 'https://www.bing.com/search?q=x', text: 'Your account is temporarily restricted', hasMarkup: false }, expect: true },
+        { name: 'SERP bình thường', input: { url: 'https://www.bing.com/search?q=thoi+tiet+ha+noi', text: 'Khoảng 1.234.000 kết quả — Thời tiết Hà Nội hôm nay', hasMarkup: false }, expect: false },
+        { name: 'bài viết có chữ captcha (không phải trang xác minh)', input: { url: 'https://www.bing.com/search?q=captcha+la+gi', text: 'Captcha là gì? Cách nhận biết captcha trên web', hasMarkup: false }, expect: false }
+      ]
+      let pass = 0
+      for (const c of cases) {
+        const got = looksLikeRestriction(c.input)
+        const ok = got === c.expect
+        if (ok) pass += 1
+        console.log(`[restrict-test] ${ok ? 'PASS' : 'FAIL'} · ${c.name}: mong đợi ${c.expect}, nhận ${got}`)
+      }
+      console.log(`[restrict-test] KET QUA: ${pass}/${cases.length} đạt`)
     })
   }
 
@@ -1595,9 +1623,32 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   void detectBrowsers().then((list) => console.log(`[browsers] tim thay ${list.length}: ${list.map((b) => `${b.name} ${b.version ?? '?'}`).join(' | ')}`))
 
   // ---------- IPC: test proxy ----------
-  ipcMain.handle('proxy:test', (_e, proxyStr) => testProxy(proxyStr))
+  ipcMain.handle('proxy:test', (_e, proxyStr) => {
+    if (listProxies().some(p => p.url === proxyStr && p.status && p.status !== 'active')) return { ok: false, error: 'Proxy đang blacklist/không dùng' }
+    return testProxy(proxyStr)
+  })
 
   // ---------- IPC: kho proxy (tab "Proxy") ----------
+  ipcMain.handle('proxies:importCsv', (_e, text: string) => {
+    try { return { ok: true, ...importProxyCsv(text) } }
+    catch (e) { return { ok: false, error: (e as Error).message } }
+  })
+  const aiIpc = (channel: string, action: (input: any) => unknown): void => {
+    ipcMain.handle(channel, (event, input) => {
+      if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Không có quyền gọi AI.')
+      return action(input)
+    })
+  }
+  aiIpc('keyword-ai:getConfig', () => getKeywordAiConfig())
+  aiIpc('keyword-ai:saveConfig', input => saveKeywordAiConfig(input))
+  aiIpc('keyword-ai:test', () => testKeywordAi())
+  aiIpc('keyword-ai:job', () => getKeywordAiJob())
+  aiIpc('keyword-ai:start', input => startKeywordAi(input))
+  aiIpc('keyword-ai:stop', () => stopKeywordAi())
+  ipcMain.handle('keywords:get', () => getKeywords())
+  ipcMain.handle('keywords:save', (_e, { text, mode }) => saveKeywords(text, mode))
+  ipcMain.handle('proxies:autoFillState', () => proxyFillState())
+  ipcMain.handle('proxies:autoFill', (_e, options) => startProxyFill(options))
   ipcMain.handle('proxies:list', () => listProxies())
   ipcMain.handle('proxies:add', (_e, input) => {
     try {
