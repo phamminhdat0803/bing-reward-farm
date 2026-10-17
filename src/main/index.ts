@@ -1,5 +1,6 @@
+import { launchPersistent } from './core/browser'
 import { looksLikeRestriction } from './core/search'
-import { startProxyFill, proxyFillState } from './proxy-auto-fill'
+import { startProxyFill, proxyFillState, startAccountProxyFill, accountProxyFillState, cancelAccountProxyFill } from './proxy-auto-fill'
 import { getKeywordAiConfig, saveKeywordAiConfig, testKeywordAi, getKeywordAiJob, startKeywordAi, stopKeywordAi } from './keyword-ai'
 import { getKeywords, saveKeywords } from './keywords'
 import { proxyStats, clearProxyHistory } from './proxy-history'
@@ -12,6 +13,7 @@ import { addProfile, getProfile, loadStore, removeProfile, updateProfile } from 
 import { browserState, closeBrowser, openBrowser, verifyRunningBrowsers } from './browsers'
 import {
   clearQueue,
+  coreConfig,
   debugPushPending,
   openLoginWindow,
   queueView,
@@ -505,6 +507,32 @@ if (process.env.BRF_TEST_ALL) {
           }
         })()
       }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
+  // Tien ich dev: BRF_HEADLESS_TEST=1 -> mo 1 phien mobile theo dung cfg cua run de kiem tra co --headless that khong
+  if (process.env.BRF_HEADLESS_TEST) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const prof =
+            loadStore().profiles.find((p) => p.id === (process.env.BRF_HEADLESS_PROFILE ?? 'default')) ??
+            loadStore().profiles[0]
+          const headless = getSettings().runHeadless || prof.headless
+          console.log(
+            `[headless-test] acc=${prof.name} · cai dat chung runHeadless=${getSettings().runHeadless} · rieng acc=${prof.headless} => cfg se dung headless=${headless}`
+          )
+          try {
+            const s = await launchPersistent(prof.profileDir, coreConfig(prof, { headless }), { mobile: true })
+            console.log('[headless-test] da mo phien MOBILE — giu 30s de kiem tra command line tien trinh')
+            await new Promise((r) => setTimeout(r, 30000))
+            await s.close()
+            console.log('[headless-test] da dong phien')
+          } catch (e) {
+            console.log(`[headless-test] loi mo phien: ${String((e as Error).message).slice(0, 200)}`)
+          }
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 5000))
     })
   }
 
@@ -1156,8 +1184,7 @@ if (process.env.BRF_TEST_ALL) {
     })
   }
 
-  // Tien ich dev: BRF_TEST_DRAWER=1 -> tu bam lan luot cac dong trong bang va bao trang thai drawer
-  // (de kiem chung loi "bam dong 2 la tat drawer")
+  // BRF_TEST_DRAWER=1: click the explicit detail triggers without changing batch selection.
   if (process.env.BRF_TEST_DRAWER) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(() => {
@@ -1184,13 +1211,13 @@ if (process.env.BRF_TEST_ALL) {
           try {
             for (const i of [0, 1, 2, 1, 0]) {
               const clicked = await wc.executeJavaScript(`(() => {
-                const rows = document.querySelectorAll('tbody tr')
+                const rows = document.querySelectorAll('[data-slot="accounts-table"] [data-account-id]')
                 const r = rows[${i}]
                 if (!r) return 'khong co dong ${i}'
-                r.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
-                r.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-                r.click()
-                return 'da bam dong ${i}'
+                const trigger = r.querySelector('[data-slot="account-detail-trigger"]')
+                if (!trigger) return 'khong co nut chi tiet ${i}'
+                trigger.click()
+                return 'da mo chi tiet dong ${i}'
               })()`)
               await new Promise((r) => setTimeout(r, 700))
               console.log(`[test-drawer] ${clicked} -> ${await read()}`)
@@ -1649,6 +1676,9 @@ app.whenReady().then(() => {  electronApp.setAppUserModelId('com.dat.bingrewardf
   ipcMain.handle('keywords:save', (_e, { text, mode }) => saveKeywords(text, mode))
   ipcMain.handle('proxies:autoFillState', () => proxyFillState())
   ipcMain.handle('proxies:autoFill', (_e, options) => startProxyFill(options))
+  ipcMain.handle('proxies:accountFill', (_e, options) => startAccountProxyFill(options))
+  ipcMain.handle('proxies:accountFillState', () => accountProxyFillState())
+  ipcMain.handle('proxies:accountFillCancel', (_e, jobId) => cancelAccountProxyFill(jobId))
   ipcMain.handle('proxies:list', () => listProxies())
   ipcMain.handle('proxies:add', (_e, input) => {
     try {

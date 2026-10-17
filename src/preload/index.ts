@@ -1,4 +1,5 @@
 import type { ProxyFillOptions, ProxyFillState } from '../shared/proxy-auto-fill'
+import type { AccountProxyFillJob, AccountProxyFillRequest } from '../shared/account-proxy-fill'
 import type { KeywordAiConfig, KeywordAiConfigInput, KeywordAiJob, KeywordAiRequest } from '../shared/keyword-ai'
 import type { KeywordLibrary } from '../shared/keywords'
 import { contextBridge, ipcRenderer } from 'electron'
@@ -22,6 +23,9 @@ import type { ProxyStat,
 const api = {
   proxyAutoFillState: (): Promise<ProxyFillState> => ipcRenderer.invoke('proxies:autoFillState'),
   proxyAutoFill: (options: ProxyFillOptions): Promise<ProxyFillState> => ipcRenderer.invoke('proxies:autoFill', options),
+  accountProxyFill: (options: AccountProxyFillRequest): Promise<AccountProxyFillJob> => ipcRenderer.invoke('proxies:accountFill', options),
+  accountProxyFillState: (): Promise<AccountProxyFillJob | null> => ipcRenderer.invoke('proxies:accountFillState'),
+  accountProxyFillCancel: (jobId: string): Promise<AccountProxyFillJob | null> => ipcRenderer.invoke('proxies:accountFillCancel', jobId),
   getKeywordAiConfig: (): Promise<KeywordAiConfig> => ipcRenderer.invoke('keyword-ai:getConfig'),
   saveKeywordAiConfig: (config: KeywordAiConfigInput): Promise<KeywordAiConfig> => ipcRenderer.invoke('keyword-ai:saveConfig', config),
   testKeywordAi: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('keyword-ai:test'),

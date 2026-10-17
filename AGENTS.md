@@ -6,6 +6,29 @@ Electron 39 + electron-vite 5 + React 19 + Tailwind v4 + shadcn. Lõi automation
 
 ## Lệnh
 
+- **Đũa proxy cho một tài khoản (2026-10-17)**: chuột phải → “Chọn và gán proxy…” (`WandSparkles`).
+  Nhập 1–20 proxy; tổng N = 1 chính + N−1 dự phòng. `AccountProxyFillDialog` chỉ gửi ID dòng vừa bấm, không lấy nhóm checkbox.
+  `startAccountProxyFill` trong `main/proxy-auto-fill.ts` chọn URL khác với chain hiện tại, loại proxy của tài khoản khác
+  (kể cả dự phòng/lastGoodProxy), blacklist/unused và lastTest lỗi. Xếp lịch sử tốt trước rồi test mới bằng
+  `testAndSave` (Bing qua proxy, force=true; không lấy ping cache), tối đa 4 phép đồng thời, lỗi thì thử ứng viên tiếp.
+  Chỉ ghi profile khi đủ N đạt; proxy chính có độ trễ thấp nhất trong nhóm đạt. Thiếu/Dừng ⇒ không đổi cấu hình.
+  Khoá profile; chặn khi browser/run/lệnh chờ hoạt động; kiểm lại ownership, trạng thái proxy và sửa cấu hình trước khi ghi.
+  Không chạy song song với tự gán toàn bộ; IPC `proxies:accountFill`, `proxies:accountFillState`, `proxies:accountFillCancel`.
+  Test: `node --test tools/test-account-proxy-fill.mjs tools/test-proxy-auto-fill.mjs`;
+  UI dùng fixture trong mục Tương tác trang Tài khoản + `node tools/test-account-proxy-fill-ui.mjs` (IPC/network giả lập).
+
+- **Tương tác trang Tài khoản (2026-10-17)**: quy ước này thay cho cách mở drawer/chọn bằng chuột phải cũ bên dưới.
+  Bấm dòng = chọn riêng; Ctrl/⌘ + bấm hoặc checkbox = chọn nhiều; Shift = chọn đoạn theo danh sách đang hiển thị.
+  Bấm tên, nhấp đúp dòng hoặc Enter khi focus dòng = mở chi tiết, độc lập với checkbox.
+  Chuột phải KHÔNG thay đổi lựa chọn; mọi mục trong menu chỉ áp dụng cho đúng dòng đó. Thao tác nhiều tài khoản dùng toolbar.
+  Toolbar chỉ dùng `selectedIds`, không lấy ngầm tài khoản đang xem/đầu tiên; Sửa/Đăng nhập dùng đúng một tài khoản đã chọn.
+  Chọn tất cả chỉ bật/tắt các dòng đang hiển thị, giữ lựa chọn ẩn và báo số lượng; header có trạng thái chọn một phần.
+  Drawer đóng bằng Esc/nút X/bấm ngoài bảng và toolbar/chuyển tab; menu đang mở nhận Esc trước drawer.
+  Điều hướng trước/sau trong drawer theo bộ lọc, không sửa checkbox; không tự mở lại khi quay về tab.
+  Pure helper: `src/renderer/src/lib/account-selection.ts`; test: `node --test tools/test-account-selection.mjs`.
+  UI giả lập IPC, không đụng tài khoản thật: build CSS, chạy `node tools/preview-accounts-interaction-ui.mjs`,
+  rồi `node tools/test-accounts-interaction-ui.mjs` (Edge headless; kiểm tra tương tác và toolbar ở 1184/1664px).
+
 - **Cài đặt kịch bản thông minh (2026-10-16)**: tab Cài đặt và menu Cài đặt chạy mở `SettingsPanel`.
   6 mẫu: chỉ theo dõi / 3 lượt-ngày / 3 phiên-ngày / mục tiêu 20% / score cao→20% / chỉ Daily set.
   Quy tắc chung + override từng profile; Bật và Lưu mới có hiệu lực. Lịch tự động vẫn là lựa chọn riêng.
@@ -172,6 +195,31 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 3. **Bỏ qua**: `/refer`, `referandearn`, `/quest/` (punchcard) và thẻ có chữ `Completed`/`đã hoàn thành`.
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
+
+## “Chạy ẩn” không có tác dụng với pass chạy (kể cả MOBILE) — đã sửa 2026-10-17
+
+Triệu chứng người dùng báo: bật **Chạy ẩn (headless)** trong Cài đặt mà kịch bản **mobile vẫn mở cửa sổ trình duyệt**.
+
+Chuỗi nguyên nhân (đo trong code + file cấu hình thật):
+1. Trong `startRunNow` (runner.ts) `cfg = coreConfig(profile)` — **không truyền override headless**.
+2. `coreConfig()` đặt `cfg.browser.headless = profile.headless` (runner.ts:235) — cờ **theo từng tài khoản**, mặc định `false`
+   (`profiles.ts`), và UI không có chỗ bật cờ này.
+3. Cài đặt chung `getSettings().runHeadless` **chỉ được dùng ở `snapshot()`** (runner.ts:273) — **không** dùng ở đường chạy.
+   ⇒ Kiểm chứng thực tế: `settings.json: runHeadless = true` nhưng **cả 7 profile đều `headless = false`** ⇒ mọi pass đều mở cửa sổ.
+   Dòng log cũ `[run] che do hien thi: AN (headless)` **in theo cài đặt chung**, không phải giá trị thật ⇒ gây hiểu nhầm.
+4. Thêm nữa: nhánh mobile nếu **đã có trình duyệt mở kèm CDP** thì `attachCdp()` vào chính cửa sổ đó — chế độ ẩn **không thể**
+   áp dụng cho cửa sổ người dùng đã mở (và không thể mở persistent context thứ hai cùng `profileDir` vì khoá profile).
+
+Đã sửa:
+- `runner.ts`: `const wantHeadless = getSettings().runHeadless || profile.headless` → `coreConfig(profile, { headless: wantHeadless })`
+  (bật ở **một trong hai** chỗ là chạy ẩn; cờ riêng của acc vẫn được tôn trọng).
+- Log đổi thành `[run] che do hien thi THUC TE: AN (headless) (cai dat chung=an · rieng acc=hien)`.
+- Nhánh mobile khi attach vào cửa sổ có sẵn: ghi log rõ *“đang ATTACH vào cửa sổ bạn đã mở — chế độ ẨN không áp dụng; đóng cửa sổ đó nếu muốn chạy ẩn hoàn toàn”*.
+
+Kiểm chứng (`BRF_HEADLESS_TEST=1 BRF_HEADLESS_PROFILE=default`): hook log
+`acc=Đạt Phạm · cai dat chung runHeadless=true · rieng acc=false => cfg se dung headless=true`, mở phiên mobile rồi
+đối chiếu **command line tiến trình thật**: có tiến trình `msedge.exe` mang **`--headless`** (trước khi sửa: 0 tiến trình headless).
+Hook giữ phiên 30 s rồi tự đóng.
 
 ## Kịch bản search: luôn phát hiện XÁC MINH, dừng ngay, không fallback (2026-10-17)
 

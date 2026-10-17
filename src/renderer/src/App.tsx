@@ -14,6 +14,7 @@ import { AppToolbar } from '@renderer/components/AppToolbar'
 import { AccountsTable } from '@renderer/components/AccountsTable'
 import { AccountDialog } from '@renderer/components/AccountDialog'
 import { AccountDrawer } from '@renderer/components/AccountDrawer'
+import { AccountProxyFillDialog } from '@renderer/components/AccountProxyFillDialog'
 import { BrowsersDialog } from '@renderer/components/BrowsersDialog'
 import { ConfirmDialog, type ConfirmRequest } from '@renderer/components/ConfirmDialog'
 import { ProxyPanel } from '@renderer/components/ProxyPanel'
@@ -50,6 +51,8 @@ export default function App(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(() => new URLSearchParams(location.search).get('drawer') === '1')
+  const [proxyFillOpen, setProxyFillOpen] = useState(false)
+  const [proxyFillId, setProxyFillId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Profile | null>(null)
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [browsersOpen, setBrowsersOpen] = useState(() => new URLSearchParams(location.search).get('browsers') === '1')
@@ -106,7 +109,7 @@ export default function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (tab !== 'accounts') setDrawerOpen(false)
+    if (tab !== 'accounts') { setDrawerOpen(false); setProxyFillOpen(false) }
   }, [tab])
 
   useEffect(() => {
@@ -348,21 +351,31 @@ export default function App(): React.JSX.Element {
 
   // Mỗi lúc chỉ mở MỘT lớp phủ (dialog / drawer / trình duyệt) — tránh Radix giữ focus chéo
   const openAccountDialog = (profile: Profile | null): void => {
+    setProxyFillOpen(false)
     setDrawerOpen(false)
     setBrowsersOpen(false)
     setEditing(profile)
     setDialogOpen(true)
   }
   const openDrawer = (id: string): void => {
+    setProxyFillOpen(false)
     setDialogOpen(false)
     setBrowsersOpen(false)
     setActiveId(id)
     setDrawerOpen(true)
   }
   const openBrowsers = (): void => {
+    setProxyFillOpen(false)
     setDialogOpen(false)
     setDrawerOpen(false)
     setBrowsersOpen(true)
+  }
+  const openAccountProxyFill = (id: string): void => {
+    setDrawerOpen(false)
+    setDialogOpen(false)
+    setBrowsersOpen(false)
+    setProxyFillId(id)
+    setProxyFillOpen(true)
   }
 
   /** Hỏi rồi xoá tài khoản khỏi danh sách (dùng cho toolbar + menu chuột phải). */
@@ -690,6 +703,7 @@ export default function App(): React.JSX.Element {
                 if (r) openAccountDialog(r.profile)
               }}
               onRemove={(id) => confirmRemove([id])}
+              onAssignProxies={openAccountProxyFill}
               onSignOut={(id) =>
                 void act(`signout:${id}`, async () => {
                   const r = await window.api.signOut(id)
@@ -892,9 +906,20 @@ export default function App(): React.JSX.Element {
         />
       </main>
 
+      <AccountProxyFillDialog
+        row={rows.find(row => row.id === proxyFillId) ?? null}
+        open={proxyFillOpen}
+        onOpenChange={setProxyFillOpen}
+        onChanged={() => {
+          void reload()
+          void window.api.listProxies().then(list => { setProxies(list); setProxyCount(list.length) })
+          void window.api.proxyHealth?.().then(setProxyHealth).catch(() => {})
+        }}
+      />
+
       <AccountDrawer
         row={activeRow}
-        open={drawerOpen && tab === 'accounts' && !dialogOpen && !browsersOpen && !confirm}
+        open={drawerOpen && tab === 'accounts' && !dialogOpen && !browsersOpen && !proxyFillOpen && !confirm}
         onOpenChange={setDrawerOpen}
         position={detailIndex >= 0 ? { index: detailIndex + 1, total: filtered.length } : undefined}
         onPrevious={detailIndex > 0 ? () => openDrawer(filtered[detailIndex - 1].id) : undefined}

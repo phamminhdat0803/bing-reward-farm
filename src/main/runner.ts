@@ -533,7 +533,11 @@ async function startRunNow(
   jobs.set(profile.id, job)
   hooks.onStatusChange?.(profile.id, true)
   const log = loggerFor(profile, hooks.onLine, job)
-  log.info(`[run] che do hien thi: ${getSettings().runHeadless ? 'AN (headless)' : 'HIEN cua so'}`)
+  log.info(
+    `[run] che do hien thi THUC TE: ${
+      getSettings().runHeadless || profile.headless ? 'AN (headless)' : 'HIEN cua so'
+    } (cai dat chung=${getSettings().runHeadless ? 'an' : 'hien'} · rieng acc=${profile.headless ? 'an' : 'hien'})`
+  )
 
   void withProfileLock(profile.id, async () => {
     try {
@@ -585,7 +589,11 @@ async function startRunNow(
 
       const st = loadState(stateFile(profile))
       const rec = dayRecord(st)
-      const cfg = coreConfig(profile)
+      // Che do hien thi THUC TE: cai dat chung (Cai dat chay -> Chay an) HOAC co flag rieng cua profile.
+      // BUG 2026-10-17: truoc day chi dung `coreConfig(profile)` => lay `profile.headless` (mac dinh false),
+      // nen bat "Chay an" trong Cai dat ma moi pass (ke ca MOBILE) van mo cua so.
+      const wantHeadless = getSettings().runHeadless || profile.headless
+      const cfg = coreConfig(profile, { headless: wantHeadless })
       if (policy.active) {
         cfg.search.checkPointsEvery = Math.max(1, Math.min(cfg.search.checkPointsEvery, policy.allowance || 1))
       }
@@ -825,6 +833,12 @@ async function startRunNow(
         if (bs.running && bs.cdpUrl) {
           session = await attachCdp(bs.cdpUrl)
           kind = 'cdp'
+          if (getSettings().runHeadless || profile.headless) {
+            log.info(
+              '[mobile] dang ATTACH vao cua so trinh duyet ban da mo (co CDP) — che do AN khong ap dung cho cua so nay; ' +
+                'muon chay an hoan toan thi dong cua so do truoc khi chay.'
+            )
+          }
         } else {
           session = await launchPersistent(profile.profileDir, cfg, { mobile: true })
           kind = 'local'

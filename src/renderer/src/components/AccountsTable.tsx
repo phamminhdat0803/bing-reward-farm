@@ -16,6 +16,7 @@ import {
   Loader2,
   MonitorCog,
   PanelRightOpen,
+  WandSparkles,
   UserRound
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
@@ -64,6 +65,7 @@ type Props = {
   /** proxyId -> suc khoe proxy (live / blocks-bing / dead) */
   proxyHealth?: Record<string, { status: string; ip?: string; country?: string; latency?: number; error?: string }>
   onEdit?: (id: string) => void
+  onAssignProxies?: (id: string) => void
   onRemove?: (id: string) => void
   onSignOut?: (id: string) => void
 }
@@ -273,8 +275,11 @@ export function AccountsTable(p: Props): React.JSX.Element {
                       aria-selected={selected.has(row.id)}
                       tabIndex={0}
                       className={'group cursor-default outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand-blue-deep)] ' + (active ? '[&>td:first-child]:shadow-[inset_2px_0_0_var(--brand-blue-deep)]' : '')}
+                      onMouseDown={(event) => {
+                        if (event.shiftKey && !isInteractive(event.target)) event.preventDefault()
+                      }}
                       onClick={(event) => {
-                        if (isInteractive(event.target) || window.getSelection()?.toString()) return
+                        if (isInteractive(event.target) || (!event.shiftKey && !event.ctrlKey && !event.metaKey && window.getSelection()?.toString())) return
                         p.onSelect(row.id, { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey })
                       }}
                       onDoubleClick={(event) => {
@@ -486,6 +491,11 @@ export function AccountsTable(p: Props): React.JSX.Element {
                     {p.onEdit ? (
                       <ContextMenuItem className="gap-2" onClick={() => p.onEdit?.(row.id)}>
                         <Pencil className="size-3.5" /> Sửa tài khoản
+                      </ContextMenuItem>
+                    ) : null}
+                    {p.onAssignProxies ? (
+                      <ContextMenuItem className="gap-2" onClick={() => p.onAssignProxies?.(row.id)}>
+                        <WandSparkles className="size-3.5" /> Chọn và gán proxy…
                       </ContextMenuItem>
                     ) : null}
                     <ContextMenuSeparator />
