@@ -504,6 +504,108 @@ if (process.env.BRF_TEST_ALL) {
     })
   }
 
+  // Tien ich dev: BRF_SETTINGS_SHOT=1 -> mo tab Cai dat + mo dropdown "Dang chinh cho" roi chup anh
+  if (process.env.BRF_SETTINGS_SHOT) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        void (async () => {
+          const wc = mainWindow?.webContents
+          if (!wc) return
+          await wc.executeJavaScript(
+            `(() => { const b = [...document.querySelectorAll('nav button')].find((x) => /Cài đặt/.test(x.textContent || '')); if (b) b.click(); return 'ok' })()`
+          )
+          await new Promise((r) => setTimeout(r, 3000))
+          const info = await wc.executeJavaScript(`(() => {
+            const el = document.querySelector('[data-slot="policy-settings"]')
+            const sel = document.querySelector('#policy-scope')
+            const text = el ? (el.innerText || '') : ''
+            return {
+              coPanel: !!el,
+              coSelect: !!sel,
+              giaTriDangChon: sel ? (sel.textContent || '').trim() : null,
+              dongLienQuan: text.split('\\n').filter((l) => /Mặc định chung|riêng|Cấu hình riêng|Phạm|Đạt/.test(l)).slice(0, 14)
+            }
+          })()`)
+          console.log(`[settings-shot] truoc khi mo dropdown: ${JSON.stringify(info)}`)
+          const opened = await wc.executeJavaScript(`(() => {
+            const el = document.querySelector('#policy-scope')
+            if (!el) return { error: 'khong thay #policy-scope' }
+            const r = el.getBoundingClientRect()
+            const o = { bubbles: true, cancelable: true, composed: true, pointerType: 'mouse', button: 0, buttons: 1, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }
+            el.dispatchEvent(new PointerEvent('pointerdown', o))
+            el.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 }))
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: o.clientX, clientY: o.clientY }))
+            return { ok: true }
+          })()`)
+          console.log(`[settings-shot] mo dropdown: ${JSON.stringify(opened)}`)
+          await new Promise((r) => setTimeout(r, 800))
+          // Neu pointer khong mo duoc thi dung ban phim (Radix Select mo bang Enter khi trigger duoc focus)
+          let items = await wc.executeJavaScript(`(() => {
+            const opts = [...document.querySelectorAll('[role="option"]')]
+            return opts.map((o) => ({
+              text: (o.textContent || '').trim().slice(0, 40),
+              value: o.getAttribute('data-value') ?? o.dataset.value ?? null,
+              chon: o.getAttribute('aria-selected') === 'true' || !!o.querySelector('[data-state="checked"]')
+            }))
+          })()`)
+          if (!items.length) {
+            await wc.executeJavaScript(`(() => { const s = document.querySelector('#policy-scope'); if (s) s.focus(); return 'focus' })()`)
+            wc.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+            wc.sendInputEvent({ type: 'char', keyCode: 'Return' })
+            wc.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+            await new Promise((r) => setTimeout(r, 1200))
+            items = await wc.executeJavaScript(`(() => {
+              const opts = [...document.querySelectorAll('[role="option"]')]
+              return opts.map((o) => ({
+                text: (o.textContent || '').trim().slice(0, 40),
+                value: o.getAttribute('data-value') ?? o.dataset.value ?? null,
+                chon: o.getAttribute('aria-selected') === 'true' || !!o.querySelector('[data-state="checked"]')
+              }))
+            })()`)
+          }
+          const values = items.map((i) => i.value)
+          const trung = values.filter((v, i) => v != null && values.indexOf(v) !== i)
+          console.log(
+            `[settings-shot] lua chon (${items.length}): ${JSON.stringify(items)} · gia tri trung nhau: ${JSON.stringify(trung)} => ${trung.length ? 'CON DINH' : 'KHONG DINH'}`
+          )
+          // Chon acc "Đạt Phạm" (id = 'default') bang CHUOT THAT (Radix Select can pointer that)
+          const rectOpt = await wc.executeJavaScript(`(() => {
+            const opts = [...document.querySelectorAll('[role="option"]')]
+            const target = opts.find((o) => /Đạt Phạm/.test(o.textContent || ''))
+            if (!target) return { error: 'khong thay option Đạt Phạm' }
+            const r = target.getBoundingClientRect()
+            return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), text: (target.textContent || '').trim() }
+          })()`)
+          console.log(`[settings-shot] option Đạt Phạm: ${JSON.stringify(rectOpt)}`)
+          if (!('error' in rectOpt)) {
+            wc.sendInputEvent({ type: 'mouseMove', x: rectOpt.x, y: rectOpt.y })
+            await new Promise((r) => setTimeout(r, 200))
+            wc.sendInputEvent({ type: 'mouseDown', x: rectOpt.x, y: rectOpt.y, button: 'left', clickCount: 1 })
+            await new Promise((r) => setTimeout(r, 80))
+            wc.sendInputEvent({ type: 'mouseUp', x: rectOpt.x, y: rectOpt.y, button: 'left', clickCount: 1 })
+          }
+          await new Promise((r) => setTimeout(r, 1800))
+          const after = await wc.executeJavaScript(`(() => {
+            const sel = document.querySelector('#policy-scope')
+            const el = document.querySelector('[data-slot="policy-settings"]')
+            const text = el ? (el.innerText || '') : ''
+            return {
+              trigger: sel ? (sel.textContent || '').trim() : null,
+              dong: text.split('\\n').filter((l) => /Dùng cấu hình riêng|Mặc định chung|riêng/.test(l)).slice(0, 6)
+            }
+          })()`)
+          console.log(`[settings-shot] sau khi chon 'Đạt Phạm': ${JSON.stringify({ after })}`)
+          const img = await wc.capturePage()
+          const dir = join(process.cwd(), 'docs')
+          mkdirSync(dir, { recursive: true })
+          const file = join(dir, `shot-settings-${Date.now()}.png`)
+          writeFileSync(file, img.toPNG())
+          console.log(`[settings-shot] anh: ${file}`)
+        })()
+      }, Number(process.env.BRF_TEST_DELAY ?? 6000))
+    })
+  }
+
   // Tien ich dev: BRF_PROXY_HIST=1 -> test 1 lo proxy de sinh lich su, mo tab Proxy va chup anh
   if (process.env.BRF_PROXY_HIST) {
     mainWindow.webContents.once('did-finish-load', () => {

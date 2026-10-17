@@ -12,6 +12,14 @@ import { ScrollArea } from './ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 
+/**
+ * BUG 2026-10-17: truoc day dung chuoi 'default' lam "pham vi mac dinh chung", nhung tai khoan dau tien
+ * (profile cu tu repo bing-reward) co **id = 'default'** => Select co 2 muc cung value 'default'
+ * ("Mặc định chung" va acc "Đạt Phạm") nen CA HAI deu hien dau tick, trigger hien "Mặc định chungĐạt Phạm".
+ * Dung sentinel khong the trung id that: slugify() chi sinh [a-z0-9-].
+ */
+const DEFAULT_SCOPE = '__default__'
+
 const statusNames = { legacy: 'Chưa bật', ready: 'Sẵn sàng', waiting: 'Đang chờ', paused: 'Tạm dừng', 'goal-met': 'Đạt mục tiêu' }
 const weekdays = [
   { short: 'CN', label: 'Chủ nhật' }, { short: 'T2', label: 'Thứ 2' },
@@ -47,7 +55,7 @@ function Section({ title, subtitle, icon, children }: { title: string; subtitle:
 
 export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: () => void }): React.JSX.Element {
   const [config, setConfig] = useState<AutomationPolicy | null>(null)
-  const [scope, setScope] = useState('default')
+  const [scope, setScope] = useState(DEFAULT_SCOPE)
   const [plans, setPlans] = useState<PolicyPlan[]>([])
   const [every, setEvery] = useState(0)
   const [savedEvery, setSavedEvery] = useState(0)
@@ -65,11 +73,11 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
     return () => { active = false }
   }, [])
   if (!config) return <div className="flex flex-1 items-center justify-center p-5 text-[13px] text-[var(--steel)]">{error || <><Loader2 className="mr-2 size-4 animate-spin" /> Đang tải cài đặt…</>}</div>
-  const own = scope !== 'default' && Object.hasOwn(config.overrides, scope)
+  const own = scope !== DEFAULT_SCOPE && Object.hasOwn(config.overrides, scope)
   const rule = own ? config.overrides[scope] : config.defaults
-  const editable = scope === 'default' || own
+  const editable = scope === DEFAULT_SCOPE || own
   const update = (patch: Partial<AccountPolicy>): void => {
-    setConfig(previous => previous ? scope === 'default'
+    setConfig(previous => previous ? scope === DEFAULT_SCOPE
       ? { ...previous, defaults: { ...previous.defaults, ...patch } }
       : { ...previous, overrides: { ...previous.overrides, [scope]: { ...rule, ...patch } } } : previous)
     setDirty(true)
@@ -107,11 +115,11 @@ export function SettingsPanel({ rows, onSaved }: { rows: RowState[]; onSaved: ()
               <Select value={scope} onValueChange={setScope}>
                 <SelectTrigger id="policy-scope"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="default">Mặc định chung</SelectItem>
+                  <SelectItem value={DEFAULT_SCOPE}>Mặc định chung</SelectItem>
                   {rows.map(row => <SelectItem key={row.id} value={row.id}>{row.profile.name}{Object.hasOwn(config.overrides, row.id) ? ' · riêng' : ''}</SelectItem>)}
                 </SelectContent>
               </Select>
-              {scope !== 'default' ? <div className="mt-2"><Toggle label="Dùng cấu hình riêng" checked={own} onChange={value => {
+              {scope !== DEFAULT_SCOPE ? <div className="mt-2"><Toggle label="Dùng cấu hình riêng" checked={own} onChange={value => {
                 const overrides = { ...config.overrides }
                 if (value) overrides[scope] = structuredClone(config.defaults)
                 else delete overrides[scope]

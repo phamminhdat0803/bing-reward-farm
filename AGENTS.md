@@ -173,6 +173,26 @@ Quy tắc nhận diện (`src/main/core/earn.ts → readOfferCards`):
 4. Mỗi thẻ: **click thật** trong trang `/earn` (mở tab mới) → chờ 5–9 s (`cfg.earn.waitAfterClickMs`) → đóng tab; nếu không mở tab mới thì `goto` thẳng URL offer.
 5. Chạy được như một `kind` riêng: menu **Chạy tất cả ▾ → Chỉ Kiếm thêm (Keep earning)**; cũng nằm trong **Chạy tất cả** (`['desktop','daily','earn','mobile']`).
 
+## Bug "Mặc định chung" + acc "Đạt Phạm" cùng tick ở tab Cài đặt (2026-10-17)
+
+Triệu chứng: trong tab **Cài đặt** (`SettingsPanel`, dropdown “Đang chỉnh cho”), mục **Mặc định chung** và tài khoản
+**Đạt Phạm** cùng hiện dấu tick; ô chọn hiển thị dính chữ `Mặc định chungĐạt Phạm`.
+
+Nguyên nhân: `SettingsPanel` dùng **chuỗi `'default'`** làm sentinel cho “phạm vi mặc định chung”, nhưng tài khoản đầu
+tiên (profile cũ seed từ `bing-reward`) có **`id = 'default'`** (`src/main/profiles.ts`) ⇒ Radix Select có **2 SelectItem
+cùng value `'default'`** nên cả hai đều được coi là đang chọn và trigger nối text của cả hai.
+
+Đã sửa: thêm `const DEFAULT_SCOPE = '__default__'` (slugify chỉ sinh `[a-z0-9-]` nên không thể trùng id thật) và thay
+toàn bộ so sánh `'default'` trong `SettingsPanel.tsx` (state `scope`, `own`, `editable`, `update`, `SelectItem`,
+điều kiện hiện Toggle “Dùng cấu hình riêng”). Các file policy (`shared/policy.ts`, `policy-engine.ts`, `policy-service.ts`)
+**không** dùng sentinel này nên chỉ sửa 1 file.
+
+Kiểm chứng (`BRF_SETTINGS_SHOT=1`, đo từ DOM):
+- Trước: `giaTriDangChon: "Mặc định chungĐạt Phạm"`; sau: **`"Mặc định chung"`**.
+- Danh sách lựa chọn: `Mặc định chung` (chọn) · `Đạt Phạm` (không) · … ⇒ **đúng 1 mục được chọn**, không còn value trùng.
+- Bấm **chuột thật** vào `Đạt Phạm` ⇒ trigger đổi thành **`Đạt Phạm`**, panel hiện *“Dùng cấu hình riêng”* + ghi chú
+  “Đang dùng mặc định chung. Bật … để chỉnh tài khoản này.” ⇒ phạm vi tài khoản hoạt động độc lập.
+
 ## Lịch sử PROXY + export (2026-10-16)
 
 Yêu cầu người dùng: rà soát proxy sống/chết, **10 lần test đều chết thì cảnh báo để xoá**, có chỗ lọc xem số lần
