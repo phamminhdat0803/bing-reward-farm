@@ -10,7 +10,7 @@ import type { Browser, BrowserContext, Page } from 'playwright-core'
 import { cancellableSleep, pick, randInt, sleep } from './logger'
 import type { CoreConfig } from './types'
 
-export const MOBILE_DEVICES = ['iPhone 13', 'iPhone 14 Pro', 'Pixel 7', 'Galaxy S9+']
+export const MOBILE_DEVICES = ['Pixel 7', 'Pixel 5', 'Galaxy S9+']
 
 export type ParsedProxy = {
   server: string
@@ -324,22 +324,24 @@ export async function humanType(cfg: CoreConfig, locator: any, text: string, tim
   }
 }
 
-/** Gia lap mobile bang CDP (dung cho che do attach CDP). */
+/** Gia lap mobile bang CDP (dung cho che do attach CDP hoac local page). */
 export async function newDeviceSession(page: Page): Promise<unknown> {
   const session = await page.context().newCDPSession(page)
-  const dev = devices[pick(MOBILE_DEVICES)]
+  const deviceName = pick(MOBILE_DEVICES)
+  const dev = devices[deviceName]
+  const isPixel = deviceName.startsWith('Pixel')
   await session.send('Emulation.setUserAgentOverride', {
     userAgent: dev.userAgent,
     // client hints: thieu "mobile: true" thi Bing coi la desktop
     userAgentMetadata: {
       platform: 'Android',
-      platformVersion: '13',
+      platformVersion: '14',
       architecture: '',
-      model: 'Pixel 7',
+      model: isPixel ? deviceName : 'SM-G965U',
       mobile: true,
       brands: [
-        { brand: 'Chromium', version: '120' },
-        { brand: 'Google Chrome', version: '120' }
+        { brand: 'Chromium', version: '130' },
+        { brand: 'Google Chrome', version: '130' }
       ]
     }
   })

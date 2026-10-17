@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { build } from 'esbuild'
 
 const stubs = {
-  './browser': 'export const humanPause=async()=>{}; export const humanType=async()=>{}; export const workPage=async()=>{throw Error("Không mở browser trong test")}',
+  './browser': 'export const humanPause=async()=>{}; export const humanScroll=async()=>{}; export const humanType=async()=>{}; export const workPage=async()=>{throw Error("Không mở browser trong test")}',
   './logger': 'export const cancellableSleep=async()=>{};export const sleep=async()=>{}; export const randInt=(a)=>a;',
   './rewards': 'export const fmtCounter=(v)=>v?`${v.progress}/${v.max}`:"n/a";export const readCounters=async()=>({signedIn:true,points:100,todayPoints:0,counters:{search:{progress:0,max:1}}});'
 }

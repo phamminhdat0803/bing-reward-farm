@@ -829,10 +829,8 @@ async function startRunNow(
       if (doMobile && mobileTarget > 0 && !shouldStop() && (!policy.active || policyCursor.searches < policy.allowance)) {
         const bs = await browserState(profile)
         let session: Session
-        let kind: 'local' | 'cdp'
         if (bs.running && bs.cdpUrl) {
           session = await attachCdp(bs.cdpUrl)
-          kind = 'cdp'
           if (getSettings().runHeadless || profile.headless) {
             log.info(
               '[mobile] dang ATTACH vao cua so trinh duyet ban da mo (co CDP) — che do AN khong ap dung cho cua so nay; ' +
@@ -841,7 +839,6 @@ async function startRunNow(
           }
         } else {
           session = await launchPersistent(profile.profileDir, cfg, { mobile: true })
-          kind = 'local'
         }
         job.activeSession = session
         try {
@@ -878,7 +875,7 @@ async function startRunNow(
             rememberQuery: (q) => { markKeywordUsed(q, profile.id); rememberQuery(rec, q); saveState(stateFile(profile), st) },
             shouldStop,
             onProgress: (pr) => hooks.onProgress?.({ ...pr, profileId: profile.id }),
-            preparePage: kind === 'cdp' ? (p) => newDeviceSession(p).then(() => undefined) : undefined
+            preparePage: (p) => newDeviceSession(p).then(() => undefined)
           })
           rec.mobile = {
             searches: (summary.mobile as { searches: number }).searches,

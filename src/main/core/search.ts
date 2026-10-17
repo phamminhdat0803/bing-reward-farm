@@ -71,6 +71,7 @@ export async function detectRestriction(page: Page): Promise<boolean> {
     })
     .catch(() => null)
   if (!probe) return false
+  if (typeof probe === 'boolean') return probe
   return looksLikeRestriction({ url, text: probe.text, hasMarkup: probe.marked })
 }
 
@@ -255,10 +256,12 @@ export async function runSearchPass(args: {
   }
 
   const planned = Math.min(target, cfg.search.maxSearchesPerPass)
-  const pointsBefore = first.points
+  const effectivePoints = (s: { points: number | null; readyToClaim?: number | null } | null): number =>
+    (s?.points ?? 0) + (s?.readyToClaim ?? 0)
+  const pointsBefore = first.points !== null ? effectivePoints(first) : null
   const todayBefore = first.todayPoints
   log.info(
-    `[${kind}] diem=${pointsBefore ?? '?'} hom-nay=${todayBefore ?? '?'} ` +
+    `[${kind}] diem=${pointsBefore ?? '?'}${first.readyToClaim ? ` (avail=${first.points} ready=${first.readyToClaim})` : ''} hom-nay=${todayBefore ?? '?'} ` +
       `streak=${fmtCounter(first.counters.search)} -> du kien ${planned} search`
   )
 
@@ -417,12 +420,12 @@ export async function runSearchPass(args: {
         log.warn(`[${kind}] khong doc duoc diem giua pass`)
         continue
       }
-      const pts = snap.points ?? lastPoints
+      const pts = snap.points !== null ? effectivePoints(snap) : lastPoints
       const today = snap.todayPoints ?? lastToday
       const gained = pts - lastPoints + (today - lastToday)
       log.info(
-        `[${kind}] sau ${searches} search: diem=${pts} (+${pts - (pointsBefore ?? pts)}) hom-nay=${today} ` +
-          `streak=${fmtCounter(snap.counters.search)}`
+        `[${kind}] sau ${searches} search: diem=${pts} (+${pts - (pointsBefore ?? pts)}) hom-nay=${today ?? '?'} ` +
+          `streak=${fmtCounter(snap.counters.search)}${snap.readyToClaim ? ` ready=${snap.readyToClaim}` : ''}`
       )
       if (gained > 0) stall = 0
       else {
@@ -452,7 +455,7 @@ export async function runSearchPass(args: {
     searches,
     status,
     pointsBefore,
-    pointsAfter: last?.points ?? null,
+    pointsAfter: last && last.points !== null ? effectivePoints(last) : null,
     todayBefore,
     todayAfter: last?.todayPoints ?? null,
     counterBefore: fmtCounter(first.counters.search),

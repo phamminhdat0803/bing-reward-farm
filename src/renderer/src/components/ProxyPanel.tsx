@@ -61,7 +61,7 @@ import {
 import { timeAgo } from '@renderer/lib/utils'
 import type { ProxyItem, ProxyStat, RowState } from '@shared/types'
 
-type StatusFilter = 'all' | 'ok' | 'error' | 'untested' | 'dead5' | 'dead7' | 'dead10' | 'active' | 'unused' | 'blacklisted'
+type StatusFilter = 'all' | 'ok' | 'error' | 'untested' | 'dead5' | 'active' | 'unused' | 'blacklisted'
 type ProtocolFilter = 'all' | 'socks5' | 'socks4' | 'http'
 type UsageFilter = 'all' | 'used' | 'unused'
 type SortBy = 'default' | 'latency-asc' | 'latency-desc' | 'label' | 'tested'
@@ -82,9 +82,7 @@ const statusLabels: Record<StatusFilter, string> = {
   active: 'Đang bật',
   unused: 'Không dùng',
   blacklisted: 'Blacklist',
-  dead5: 'Chết ≥5 lần liên tiếp',
-  dead7: 'Chết ≥7 lần liên tiếp',
-  dead10: 'Chết ≥10 lần liên tiếp'
+  dead5: 'Chết >5 lần, chưa lần nào sống'
 }
 
 const protocolLabels: Record<ProtocolFilter, string> = {
@@ -296,8 +294,8 @@ export function ProxyPanel({
         if (!p.lastTest || p.lastTest.ok) return false
       } else if (statusFilter === 'untested') {
         if (p.lastTest != null) return false
-      } else if (statusFilter.startsWith('dead')) {
-        if ((stats[p.id]?.failStreak ?? 0) < Number(statusFilter.slice(4))) return false
+      } else if (statusFilter === 'dead5') {
+        if (!((stats[p.id]?.fail ?? 0) > 5 && stats[p.id]?.ok === 0)) return false
       } else if (['active', 'unused', 'blacklisted'].includes(statusFilter)) {
         if ((p.status ?? 'active') !== statusFilter) return false
       }
@@ -757,9 +755,9 @@ export function ProxyPanel({
             <DropdownMenuItem onClick={() => setStatusFilter('untested')}>
               Chưa kiểm tra ({counts.untested})
             </DropdownMenuItem>
-            {(['dead5', 'dead7', 'dead10', 'active', 'unused', 'blacklisted'] as StatusFilter[]).map(filter => (
+            {(['dead5', 'active', 'unused', 'blacklisted'] as StatusFilter[]).map(filter => (
               <DropdownMenuItem key={filter} onClick={() => setStatusFilter(filter)}>
-                {statusLabels[filter]} ({(filter === 'blacklisted' ? items : items.filter(p => p.status !== 'blacklisted')).filter(p => filter.startsWith('dead') ? (stats[p.id]?.failStreak ?? 0) >= Number(filter.slice(4)) : (p.status ?? 'active') === filter).length})
+                {statusLabels[filter]} ({(filter === 'blacklisted' ? items : items.filter(p => p.status !== 'blacklisted')).filter(p => filter === 'dead5' ? (stats[p.id]?.fail ?? 0) > 5 && stats[p.id]?.ok === 0 : (p.status ?? 'active') === filter).length})
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
